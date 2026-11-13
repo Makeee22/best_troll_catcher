@@ -56,10 +56,10 @@ False positives to design for from the start:
 
 | Role | Person | Owns | Directories |
 |---|---|---|---|
-| **Backend** | arde1001 | Ingest, signals, clustering, decision model, evaluation script, API | `backend/`, `docs/api.md` |
-| **Front end + infrastructure** | _name_ | Dashboard, Hostinger VPS, domain, Docker, deploys, the live URL | `frontend/`, `deploy/`, `docker-compose.yml` |
-| **Presentation + documentation** | _name_ | Junction submission, deck, video, demo script, README, mentor contact, keeper of this file | `docs/pitch/`, `README.md`, `PLAN.md` |
-| **Data + detection criteria** | _name_ | Datasets, labelled test set, signal definitions and thresholds, the rubric the decision model follows, reading the false positives | `data/`, `docs/criteria.md` |
+| **Backend** | Arde1001 | Ingest, signals, clustering, decision model, evaluation script, API | `backend/`, `docs/api.md`, `CLAUDE.md` |
+| **Front end + infrastructure** | Makeee22 | Dashboard, Hostinger VPS, domain, Docker, deploys, the live URL | `frontend/`, `deploy/`, `docker-compose.yml` |
+| **Presentation + documentation** | J0l3s | Junction submission, deck, video, demo script, README, mentor contact, keeper of this file | `docs/pitch/`, `README.md`, `PLAN.md` |
+| **Data + detection criteria** | TheSnowman99 | Datasets, labelled test set, signal definitions and thresholds, the rubric the decision model follows, reading the false positives | `data/`, `docs/criteria.md` |
 
 ## Open branches
 
@@ -69,7 +69,7 @@ Status is `OPEN` or `DECIDED`. When a branch is decided, write the date and the 
 |---|---|---|---|---|
 | **B1** | Direction | Spot the swarm / Name the technique / Clean the traffic / Trust the source | **DECIDED 13.11: Spot the swarm** | done |
 | **B2** | Role of the decision model | Judge of rule-found candidates / also finds candidates itself / explanation only | OPEN. Default: judge of candidates | Sat 10:30 |
-| **B3** | Stack | Python (FastAPI, pandas, networkx) in Docker / Node.js | OPEN. Default: Python in Docker | Sat 10:30 |
+| **B3** | Stack | Python (FastAPI, pandas, networkx) in Docker / Node.js | **DECIDED 14.11: Python (FastAPI) in Docker** | done |
 | **B4** | Front end | Static page served by the backend / separate app / Hostinger AI Builder calling our API | OPEN. The front-end owner decides | Sat 13:00 |
 | **B5** | Deploy method | SSH `git pull && docker compose up -d --build` / GitHub Actions / Hostinger MCP | OPEN. Default: SSH one-liner | Fri night |
 | **B6** | Git workflow | Everyone on `main` / feature branches with review / owner per directory | **DECIDED 13.11: owner per directory**, see [Git workflow](#git-workflow) | done |
@@ -108,16 +108,18 @@ Record every evaluation run here: date and time, dataset, variant (rules / rules
 
 | When | Dataset | Variant | Precision | Recall | False-positive rate | Change |
 |---|---|---|---|---|---|---|
-| | | | | | | |
+| 14.11 00:30 | **Synthetic** sample (216 accounts, 13 in two simulated swarms) | rules | 0.81 | 1.00 | 0.015 | First version. The 3 false positives are the simulated benign news feeds: timing and text reuse cannot tell them from a swarm. Shows the code works, says nothing about real data. |
 
 ## Status by role
 
 Each role edits only its own block.
 
 ### Backend
-- Done:
-- Doing:
-- Blocked:
+- Done: walking skeleton in `backend/`: text-reuse + timing detection, account-level evaluation, read-only API (`docs/api.md`), synthetic test data, `backend/Dockerfile`.
+- Doing: waiting for B2, B8, B11 before the decision model and the live feed.
+- Blocked: needs the AI Router and Context.dev keys; needs a first real dataset in the format of `docs/api.md` ("Input data format").
+- For Makeee22: the backend container listens on port 8000 (`backend/Dockerfile`); `docker-compose.yml` is yours. The Docker image is not built or tested yet.
+- For TheSnowman99: the thresholds to tune are the four constants at the top of `backend/swarm/detect.py`.
 
 ### Front end + infrastructure
 - Done:

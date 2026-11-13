@@ -31,10 +31,10 @@ One owner per directory. This is how four people avoid git conflicts.
 
 | Role | Owns |
 |---|---|
-| **Backend** | `backend/`, `docs/api.md` |
-| **Front end + infrastructure** | `frontend/`, `deploy/`, `docker-compose.yml` |
-| **Presentation + documentation** | `docs/pitch/`, `README.md`, `PLAN.md` |
-| **Data + detection criteria** | `data/`, `docs/criteria.md` |
+| **Backend** (Arde1001) | `backend/`, `docs/api.md`, `CLAUDE.md` |
+| **Front end + infrastructure** (Makeee22) | `frontend/`, `deploy/`, `docker-compose.yml` |
+| **Presentation + documentation** (J0l3s) | `docs/pitch/`, `README.md`, `PLAN.md` |
+| **Data + detection criteria** (TheSnowman99) | `data/`, `docs/criteria.md` |
 
 - If it is unclear which role the current user has, ask before editing.
 - Edit only that role's directories. If a change is needed elsewhere, say so and let the user ask the owner.
@@ -80,8 +80,22 @@ One owner per directory. This is how four people avoid git conflicts.
 
 ## Commands
 
-Not written yet. Fill in once the stack is decided (`PLAN.md`, branch B3): how to run the backend, the front end, the evaluation and a deploy.
+Backend (Python 3.12+), run from `backend/`:
+
+```bash
+python -m venv .venv && .venv/bin/pip install -r requirements.txt   # once
+.venv/bin/uvicorn swarm.api:app --reload                            # API on :8000 with synthetic data
+POSTS_FILE=../data/raw/posts.jsonl .venv/bin/uvicorn swarm.api:app  # API on a real dataset
+python -m swarm.synthetic                                           # evaluation on synthetic data
+python -m pytest -q                                                 # tests (needs pytest)
+docker build -t swarm-backend .                                     # image; serves on port 8000
+```
+
+Front end and deploy: not written yet.
 
 ## Architecture
 
-Not written yet. The proposed pipeline is in `PLAN.md` under "Approach". Replace this stub with the real structure once the code exists.
+- `backend/swarm/detect.py`: the detection. Posts are grouped by shared content (normalised text, link, reposted post). Two accounts are linked when they post the same content within `WINDOW_SECONDS` on at least `MIN_SHARED` separate occasions; one shared post never links anyone, which keeps breaking news and viral posts out. Linked groups of at least `MIN_SIZE` accounts are swarms. `evaluate()` gives account-level precision, recall and false-positive rate from the `coordinated` labels.
+- `backend/swarm/synthetic.py`: simulated posts with known swarms and innocent look-alikes, for tests only.
+- `backend/swarm/api.py`: read-only FastAPI app. Detection runs once at startup. The contract is `docs/api.md`.
+- Not built yet: the decision model (AI Router), the Context.dev live feed, the front end, deploy.
