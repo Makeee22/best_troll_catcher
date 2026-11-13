@@ -1,0 +1,28 @@
+# Secrets
+.env
+.env.*
+!.env.example
+
+# Junction reference material: contains personal data and other partners' keys
+Junction Platform.txt
+kaikki.pdf
+
+# Raw datasets stay out of git; data/README.md says where they come from
+data/raw/
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+.pytest_cache/
+
+# Node
+node_modules/
+dist/
+build/
+
+# Editors and OS
+.idea/
+.vscode/
+.DS_Store
