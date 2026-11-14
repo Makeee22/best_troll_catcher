@@ -91,3 +91,17 @@ def test_unknown_parser_and_failed_parser_warn():
     assert sites.from_parsed({"type": "mystery", "success": True}, "u") == ([], [], ["converter: no mapper for parser mystery"])
     failed = {"type": "reddit-user", "success": False, "error_code": "BLOCKED"}
     assert sites.from_parsed(failed, "u") == ([], [], ["converter: Context.dev parser reddit-user failed: BLOCKED"])
+
+
+def test_unclosed_tag_in_a_comment_does_not_swallow_the_next_comment():
+    html = ('<shreddit-comment thingid="t1_a" author="alice" postid="t3_p" parentid="t3_p">'
+            '<div id="t1_a-comment-rtjson-content"><p>one<p>two</div></shreddit-comment>'
+            '<shreddit-comment thingid="t1_b" author="bob" postid="t3_p" parentid="t3_p">'
+            '<div id="t1_b-comment-rtjson-content"><p>next</p></div></shreddit-comment>')
+    got = by_id(sites.from_html(html, "u")[0])
+    assert got["a"]["text"] == "one\ntwo" and got["b"]["text"] == "next"
+
+
+def test_truncated_page_keeps_the_last_comment_text():
+    html = '<shreddit-comment thingid="t1_a" author="alice" postid="t3_p"><div id="t1_a-comment-rtjson-content"><p>cut off'
+    assert by_id(sites.from_html(html, "u")[0])["a"]["text"] == "cut off"

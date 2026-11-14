@@ -33,6 +33,8 @@ class _RedditParser(HTMLParser):
 
     def handle_starttag(self, tag, attrs):
         a = dict(attrs)
+        if self.text_for is not None and tag in ("shreddit-comment", "shreddit-post"):
+            self._finish()  # an unclosed tag in the text must not swallow the rest of the page
         if self.text_for is not None:
             if tag in VOID_TAGS:
                 if tag == "br":
@@ -66,13 +68,21 @@ class _RedditParser(HTMLParser):
         if tag == "blockquote" and self.quote:
             self.quote -= 1
         if self.depth <= 0:
-            text = re.sub(r"[ \t]+", " ", "".join(self.parts))
-            text = re.sub(r"\s*\n\s*", "\n", text).strip()
-            if self.text_for in self.comments:
-                self.comments[self.text_for]["text"] = text
-            else:
-                self.post["text"] = text
-            self.text_for = None
+            self._finish()
+
+    def _finish(self):
+        text = re.sub(r"[ \t]+", " ", "".join(self.parts))
+        text = re.sub(r"\s*\n\s*", "\n", text).strip()
+        if self.text_for in self.comments:
+            self.comments[self.text_for]["text"] = text
+        else:
+            self.post["text"] = text
+        self.text_for = None
+
+    def close(self):
+        super().close()
+        if self.text_for is not None:  # a truncated page
+            self._finish()
 
     def handle_data(self, data):
         if self.text_for is not None and not self.quote:
