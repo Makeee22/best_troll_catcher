@@ -381,3 +381,19 @@ def test_hn_truncated_anchor_gives_one_distinct_url():
     urls = set(re.findall(r"https?://\S+", row["text"] + " " + row["links"]))
     assert urls == {"https://h.example/long/path/to/page", "https://o.example/"}
     assert row["text"] == "x https://h.example/long/path/to/page y a label"
+
+
+def hn_text(html):
+    return sites.from_json({"id": 1, "children": [{"id": 2, "author": "a", "story_id": 1, "children": [], "text": html}]}, "u")[0][0]["text"]
+
+
+def test_hn_anchor_label_is_replaced_only_when_it_is_a_cut_of_the_href():
+    assert hn_text('<a href="https://evil.example/">https://good.example/</a>') == "https://good.example/"
+    assert hn_text('<a href="https://a.example/">https://a.example/ (official, trust me)</a>') == "https://a.example/ (official, trust me)"
+    assert hn_text('<a href="https://other.example/x">https://a.example/pa...</a>') == "https://a.example/pa..."
+    assert hn_text('<a href="https://h.example/p/q">https://h.example/p…</a>') == "https://h.example/p/q"
+    assert hn_text('<a href="https://h.example/p">https://h.example/p... tail') == "https://h.example/p... tail"
+
+
+def test_hn_block_tag_inside_an_anchor_keeps_its_place():
+    assert hn_text('x <a href="https://a.example/">see<br>this</a> y') == "x see\nthis y"

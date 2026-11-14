@@ -306,7 +306,7 @@ class _PlainText(HTMLParser):
 
     def handle_starttag(self, tag, attrs):
         if tag in ("p", "br", "pre"):
-            self.parts.append("\n")
+            self.handle_data("\n")
         href = dict(attrs).get("href") if tag == "a" else None
         if href:
             self._end_anchor()
@@ -320,8 +320,10 @@ class _PlainText(HTMLParser):
     def _end_anchor(self):
         if self.anchor:
             href, text = self.anchor[0], "".join(self.anchor[1])
-            # Algolia cuts a long URL's anchor text with "..."; the href is the whole URL
-            self.parts.append(href if text.strip().startswith("http") else text)
+            # Algolia cuts a long URL's anchor text with "..."; the href is the whole URL. Any other label stays as written.
+            label = text.strip()
+            cut = label.rstrip("….").rstrip() if label.endswith(("...", "…")) else None
+            self.parts.append(href if cut and href.startswith(cut) and cut.startswith("http") else text)
             self.anchor = None
 
     def handle_data(self, data):
