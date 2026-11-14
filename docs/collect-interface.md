@@ -27,7 +27,17 @@ Given a raw bundle, produce `comments.csv` and, when there is profile data, `pro
 
 ### How to call the converter (for the front end)
 
-On `main` since 14.11 evening, for Reddit. The review parsers and schema.org follow. The API image already copies `backend/swarm`, so `from swarm.convert import …` works there.
+On `main` since 14.11 evening. What it reads (schema.org markup follows):
+
+| Source | Put in the bundle as |
+|---|---|
+| Reddit thread page (saved or fetched) | a `thread` page with `html` |
+| Reddit histories | `profile` pages with `parsed` of type `reddit-user` (example below) |
+| Context.dev review and comment parsers: `google-maps-reviews`, `app-store-reviews`, `google-play-reviews`, `tripadvisor-reviews`, `yelp-reviews`, `g2-reviews`, `tiktok-comments` | a `thread` page with `parsed` exactly as Context.dev returned it |
+| Bluesky `getPostThread`, `getAuthorFeed`, `getProfiles` | `json` pages, see the bundle's `json` field below. Handles that are `handle.invalid` become the DID, as in `bluesky.py` |
+| Hacker News Algolia `items/{id}` and `search?tags=comment,author_NAME` | `json` pages |
+
+Rows now also carry `links` and `repost_of`, and profiles carry `bio`; `jobs._fields` already picks them up. Placeholder authors ("Verified User…", "A Google user", `[deleted]`) are dropped and counted in the warnings, and so are rating-only reviews without text. App Store, Google Play and G2 give display names only, and a warning says that two people with one name count as one account. The API image already copies `backend/swarm`, so `from swarm.convert import …` works there.
 
 ```python
 from swarm.convert import convert, write, ConvertError

@@ -121,7 +121,7 @@ One DuckDB connection per run carries the data through four stages; each is a mo
 - `backend/swarm/synthetic.py`: simulated data in the standard format with known swarms and innocent look-alikes (`synthetic = 1` on every comment).
 - `backend/swarm/similar.py`: optional `similar_text` signal (reworded copies, via a small static embedding model); off by default.
 - `backend/swarm/cresci.py`: converts the Cresci 2017 zips to the standard format.
-- `backend/swarm/convert.py`: raw bundle or saved page -> the two CSV files: merges sources, drops anonymous authors, keeps a comment seen in a thread and a history once. Site rules in `sites.py` (Reddit pages, Context.dev parser output), schema.org markup in `schemaorg.py` (a stub until it is built). The contract is `docs/collect-interface.md`.
+- `backend/swarm/convert.py`: raw bundle or saved page -> the two CSV files: merges sources, drops anonymous authors, keeps a comment seen in a thread and a history once. Site rules in `sites.py` (Reddit pages, Context.dev parser output), schema.org markup in `schemaorg.py` (a stub until it is built); public JSON APIs (Bluesky, Hacker News) in `sites.from_json`. The contract is `docs/collect-interface.md`.
 - `backend/swarm/inject.py`: the injection benchmark. Plants simulated swarms (size, copied messages, own posts, edited or reworded copies) into a background file and runs `analyze()` on each. Run it after every change to detection.
 - `backend/swarm/api.py`: read-only FastAPI app serving one result, fixed at startup (`RESULT_FILE`, else `COMMENTS_FILE` + `PROFILES_FILE`, else the synthetic sample). A bad file stops startup with a message. The contract is `docs/api.md`.
 - Tests: one `backend/test_*.py` per module; `conftest.py` has the `make_csv` helper.
