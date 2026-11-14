@@ -27,7 +27,7 @@ curl -F comments=@comments.csv -F profiles=@profiles.csv http://localhost:8000/a
 
 **One result in memory, shared by everybody.** An upload replaces it for all visitors; a restart returns to what `swarm.api` loads at startup (the synthetic sample). Analyses run one at a time. Nothing is kept on disk.
 
-`api/requirements.txt` adds `python-multipart` and, as a stopgap, `numpy`: `backend/swarm/similar.py` imports numpy at module level but `backend/requirements.txt` does not list it (commit `bfaac31`), so the backend image cannot start without it. Remove the line when the backend fixes it.
+`api/requirements.txt` adds `python-multipart` for the upload.
 
 When the backend gets its own upload endpoint, switch with `deploy/docker-compose.backend.yml` and delete `api/`.
 
