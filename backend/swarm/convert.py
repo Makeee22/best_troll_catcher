@@ -10,8 +10,8 @@ from datetime import datetime, timezone
 
 from . import schemaorg, sites
 
-COMMENT_COLUMNS = ["comment_id", "username", "text", "timestamp", "parent_id", "thread_id"]
-PROFILE_COLUMNS = ["username", "display_name", "created_at", "post_count"]
+COMMENT_COLUMNS = ["comment_id", "username", "text", "timestamp", "parent_id", "thread_id", "links", "repost_of"]
+PROFILE_COLUMNS = ["username", "display_name", "created_at", "post_count", "bio"]
 ANONYMOUS = {"", "[deleted]", "[removed]", "deleted", "automoderator", "nimetön", "anonyymi", "anonymous", "guest"}
 ANONYMOUS_PREFIX = re.compile(r"^(verified user|a google user|anonymous|guest)\b")
 SAME_COMMENT_SECONDS = 120
@@ -74,10 +74,10 @@ def merge(rows, profiles):
     for r in rows:
         r = dict(r, comment_id=_bare(r.get("comment_id")), parent_id=_bare(r.get("parent_id")),
                  username=str(r.get("username") or ""), text=str(r.get("text") or ""),
-                 timestamp=iso_utc(r.get("timestamp")))
+                 timestamp=iso_utc(r.get("timestamp")), links=str(r.get("links") or ""), repost_of=str(r.get("repost_of") or ""))
         if is_anonymous(r["username"]):
             anonymous += 1
-        elif not r["text"].strip():
+        elif not (r["text"].strip() or r["links"] or r["repost_of"]):  # a repost or a bare link is still a signal
             empty += 1
         else:
             kept.append(r)
@@ -118,10 +118,13 @@ def merge(rows, profiles):
 
 
 def _read_source(src, page_url):
-    """parsed output first, then site rules on the html, then schema.org markup."""
-    url = src.get("url") or page_url
+    """parsed output first, then a public API response, then site rules on the html, then schema.org markup."""
+    url = src["url"] if isinstance(src.get("url"), str) and src["url"] else page_url
     rows, profiles, notes = sites.from_parsed(src["parsed"], url) if src.get("parsed") else ([], [], [])
-    if not rows and src.get("html"):
+    if not rows and src.get("json"):
+        rows, more_profiles, more_notes = sites.from_json(src["json"], url)
+        profiles, notes = profiles + more_profiles, notes + more_notes
+    if not rows and isinstance(src.get("html"), str) and src["html"]:
         more_rows, more_profiles, more_notes = sites.from_html(src["html"], url)
         rows = more_rows or schemaorg.from_html(src["html"], url)
         profiles, notes = profiles + more_profiles, notes + more_notes
@@ -147,8 +150,10 @@ def convert(bundle):
     url = bundle.get("url") or ""
     rows, profiles, notes = [], [], list((bundle.get("coverage") or {}).get("notes") or [])
     for page in bundle.get("pages") or []:
-        for src in [page, *(page.get("frames") or [])]:
-            r, p, n = _read_source(src, page.get("url") or url)
+        page_url = page["url"] if isinstance(page.get("url"), str) and page["url"] else url
+        frames = page.get("frames") if isinstance(page.get("frames"), list) else []
+        for src in [page, *(f for f in frames if isinstance(f, dict))]:
+            r, p, n = _read_source(src, page_url)
             rows += r
             profiles += p
             notes += n

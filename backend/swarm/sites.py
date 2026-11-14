@@ -220,3 +220,146 @@ def from_parsed(parsed, page_url):
     if not parsed.get("success"):
         return [], [], [f"converter: Context.dev parser {kind} failed: {parsed.get('error_code') or parsed.get('error') or 'unknown'}"]
     return MAPPERS[kind](_d(parsed.get("data")), page_url)
+
+
+# --- public JSON APIs: Bluesky (AT Protocol) and Hacker News (Algolia) ---
+
+BSKY_VISIBLE = "app.bsky.feed.defs#threadViewPost"
+
+
+def _row(cid, username, text, source, display_name="", timestamp="", parent_id="", thread_id="", links="", repost_of=""):
+    return {"comment_id": cid, "username": username, "display_name": display_name, "text": text, "timestamp": timestamp,
+            "parent_id": parent_id, "thread_id": thread_id, "source": source, "links": links, "repost_of": repost_of}
+
+
+def _profile(username, display_name="", created_at="", post_count="", bio=""):
+    return {"username": username, "display_name": display_name, "created_at": created_at, "post_count": post_count, "bio": bio}
+
+
+def _bsky_post(post, source):
+    """(row, profile) of a Bluesky post view; the row's thread is its root, or itself for a root post."""
+    author, record = _d(post.get("author")), _d(post.get("record"))
+    reply = _d(record.get("reply"))
+    uri = _s(post.get("uri"))
+    features = [f for facet in _list(record.get("facets")) for f in _list(_d(facet).get("features"))]
+    links = [_s(_d(f).get("uri")) for f in features if _s(_d(f).get("$type")).endswith("#link")]
+    links.append(_s(_d(_d(post.get("embed")).get("external")).get("uri")))
+    handle = _s(author.get("handle"))
+    row = _row(uri, handle, _s(record.get("text")), source, _s(author.get("displayName")), _s(record.get("createdAt")),
+               _s(_d(reply.get("parent")).get("uri")), _s(_d(reply.get("root")).get("uri")) or uri, " ".join(dict.fromkeys(filter(None, links))))  # a link in the text and the card counts once
+    return row, _profile(handle, row["display_name"], _s(author.get("createdAt")))  # the profile only matters with a creation date
+
+
+def _list(x):
+    return x if isinstance(x, list) else []
+
+
+def _bsky_thread(thread):
+    rows, profiles, hidden, stack = [], [], 0, [thread]
+    root = _d(thread.get("post"))
+    while stack and len(rows) < MAX_COMMENTS:
+        n = stack.pop()
+        if not isinstance(n, dict) or n.get("$type", BSKY_VISIBLE) != BSKY_VISIBLE:  # blocked, deleted and not-found nodes carry another type
+            hidden += 1
+            continue
+        row, profile = _bsky_post(_d(n.get("post")), "thread")
+        rows.append(row)
+        profiles += [profile] if profile["created_at"] else []
+        stack.extend(reversed(_list(n.get("replies"))))
+    warnings = []
+    if hidden:
+        warnings.append(f"converter: left out {hidden} Bluesky post{'' if hidden == 1 else 's'} not visible (blocked, deleted or not found)")
+    total, got = root.get("replyCount"), len(rows) - 1
+    if isinstance(total, int) and total > got:
+        warnings.append(f"converter: read {max(got, 0)} of {total} replies on the Bluesky thread")
+    return rows, profiles, warnings
+
+
+def _bsky_feed(feed):
+    rows, profiles = [], []
+    for item in _list(feed):
+        item = _d(item)
+        reason, post = _d(item.get("reason")), _d(item.get("post"))
+        if _s(reason.get("$type")).endswith("#reasonRepost"):
+            by = _d(reason.get("by"))
+            handle = _s(by.get("handle"))
+            rows.append(_row(f"repost:{handle}:{_s(post.get('uri'))}", handle, "", "history", timestamp=_s(reason.get("indexedAt")),
+                             repost_of=_s(post.get("uri"))))
+            profiles += [_profile(handle, _s(by.get("displayName")), _s(by.get("createdAt")))] if by.get("createdAt") else []
+        elif post:
+            row, profile = _bsky_post(post, "history")
+            rows.append(row)
+            profiles += [profile] if profile["created_at"] else []
+    return rows, profiles, []
+
+
+def _bsky_profiles(items):
+    return [], [_profile(_s(p.get("handle")), _s(p.get("displayName")), _s(p.get("createdAt")), _s(p.get("postsCount")), _s(p.get("description")))
+              for p in map(_d, _list(items))], []
+
+
+class _PlainText(HTMLParser):
+    """Algolia's HTML (<p>, <a href>, <i>, <pre><code>) as plain text plus the link URLs."""
+    def __init__(self):
+        super().__init__(convert_charrefs=True)
+        self.parts, self.links = [], []
+
+    def handle_starttag(self, tag, attrs):
+        if tag in ("p", "br", "pre"):
+            self.parts.append("\n")
+        href = dict(attrs).get("href") if tag == "a" else None
+        if href:
+            self.links.append(href)
+
+    def handle_data(self, data):
+        self.parts.append(data)
+
+
+def _html_text(value):
+    """(text, links) of an Algolia HTML string."""
+    p = _PlainText()
+    p.feed(_s(value))
+    p.close()
+    text = re.sub(r"[ \t]+", " ", "".join(p.parts))
+    return re.sub(r"\s*\n\s*", "\n", text).strip(), " ".join(p.links)
+
+
+def _hn_row(item, source, story_id=""):
+    text, links = _html_text(item.get("text") if "text" in item else item.get("comment_text"))
+    return _row(_s(item.get("id") if "id" in item else item.get("objectID")), _s(item.get("author")), text, source,
+                timestamp=_s(item.get("created_at")), parent_id=_s(item.get("parent_id")),
+                thread_id=_s(item.get("story_id")) or story_id, links=links)
+
+
+def _hn_item(item):
+    rows, stack = [], [item]
+    story = _s(item.get("id"))
+    while stack and len(rows) < MAX_COMMENTS:
+        n = stack.pop()
+        if not isinstance(n, dict):
+            continue
+        row = _hn_row(n, "thread", story)
+        if n is item:  # the story: a row only with its own text or link (Ask HN, link posts)
+            row["links"] = " ".join(filter(None, [row["links"], _s(n.get("url"))]))
+            if not (row["text"] or row["links"]):
+                row = None
+        if row:
+            rows.append(row)
+        stack.extend(reversed(_list(n.get("children"))))
+    return rows, [], []
+
+
+def from_json(data, page_url):
+    """Rows of a public API response: Bluesky thread, author feed and profiles, Hacker News item and search hits."""
+    data = _d(data)
+    if "thread" in data:
+        return _bsky_thread(_d(data["thread"]))
+    if "feed" in data:
+        return _bsky_feed(data["feed"])
+    if "profiles" in data:
+        return _bsky_profiles(data["profiles"])
+    if "id" in data and isinstance(data.get("children"), list):
+        return _hn_item(data)
+    if "hits" in data:
+        return [_hn_row(h, "history") for h in _list(data["hits"]) if isinstance(h, dict)], [], []
+    return [], [], [f"converter: unrecognised JSON on {page_url}"]

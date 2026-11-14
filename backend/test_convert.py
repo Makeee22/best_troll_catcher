@@ -7,8 +7,8 @@ from swarm import convert as convert_module
 from swarm.core import analyze
 from swarm.convert import ConvertError, convert, is_anonymous, iso_utc, main, merge
 
-COMMENT_COLUMNS = ["comment_id", "username", "text", "timestamp", "parent_id", "thread_id"]
-PROFILE_COLUMNS = ["username", "display_name", "created_at", "post_count"]
+COMMENT_COLUMNS = ["comment_id", "username", "text", "timestamp", "parent_id", "thread_id", "links", "repost_of"]
+PROFILE_COLUMNS = ["username", "display_name", "created_at", "post_count", "bio"]
 
 
 def row(cid, user, text, ts="", parent="", source="thread", thread=""):
@@ -62,7 +62,7 @@ def test_merge_drops_and_counts_anonymous_and_empty():
 
 
 def test_profiles_are_deduped_by_username_keeping_first_non_empty():
-    profile = lambda u, created="", name="": {"username": u, "display_name": name, "created_at": created, "post_count": ""}
+    profile = lambda u, created="", name="": {"username": u, "display_name": name, "created_at": created, "post_count": "", "bio": ""}
     _, profiles, _ = merge([], [profile("Alice", name="A"), profile("alice", "2020-01-01T00:00:00Z", "B"), profile("bob")])
     assert profiles == [profile("Alice", "2020-01-01T00:00:00Z", "A"), profile("bob")]
 
@@ -117,7 +117,7 @@ def test_cli_errors_exit_2(tmp_path, capsys):
 def test_comment_display_name_reaches_profiles():
     named = dict(row("1", "u123", "hi"), display_name="Helpful Bot")
     _, profiles, _ = merge([named], [])
-    assert profiles == [{"username": "u123", "display_name": "Helpful Bot", "created_at": "", "post_count": ""}]
+    assert profiles == [{"username": "u123", "display_name": "Helpful Bot", "created_at": "", "post_count": "", "bio": ""}]
 
 
 def test_fall_through_to_html_keeps_parsed_profiles_and_notes(monkeypatch):
@@ -149,3 +149,36 @@ def test_profiles_of_placeholder_authors_are_dropped_with_their_comments():
     profile = lambda u: {"username": u, "display_name": u, "created_at": "", "post_count": "3"}
     _, profiles, _ = merge([], [profile("A Google user"), profile("Verified User in Software"), profile(""), profile("ann")])
     assert [p["username"] for p in profiles] == ["ann"]
+
+
+def test_convert_reads_json_pages_and_writes_links_repost_of_and_bio(tmp_path):
+    # synthetic Bluesky feed and profile responses
+    post = {"uri": "at://other", "author": {"handle": "bob.test"}, "record": {"text": "theirs", "createdAt": "2026-11-14T10:00:00Z"}}
+    reason = {"$type": "app.bsky.feed.defs#reasonRepost", "by": {"handle": "alice.test"}, "indexedAt": "2026-11-14T11:00:00Z"}
+    profile = {"profiles": [{"handle": "alice.test", "displayName": "Alice", "description": "I am a bot account",
+                             "createdAt": "2024-05-01T00:00:00Z", "postsCount": 3}]}
+    bundle = {"url": "https://bsky.app/profile/alice.test", "pages": [
+        {"url": "a", "role": "history", "json": {"feed": [{"post": post, "reason": reason}]}},
+        {"url": "b", "role": "profile", "json": profile}]}
+    comments_path, profiles_path, _ = convert_module.write(bundle, str(tmp_path))
+    with open(comments_path, newline="", encoding="utf-8") as f:
+        reader = csv.DictReader(f)
+        assert reader.fieldnames == ["comment_id", "username", "text", "timestamp", "parent_id", "thread_id", "links", "repost_of"]
+        assert [(r["username"], r["text"], r["repost_of"]) for r in reader] == [("alice.test", "", "at://other")]
+    with open(profiles_path, newline="", encoding="utf-8") as f:
+        reader = csv.DictReader(f)
+        assert reader.fieldnames == ["username", "display_name", "created_at", "post_count", "bio"]
+        assert [(r["bio"], r["post_count"]) for r in reader] == [("I am a bot account", "3")]
+    assert analyze(comments_path, profiles_path)["source"]["comments"] == 1  # the core loads both new columns
+
+
+def test_row_without_text_or_links_or_repost_is_still_dropped():
+    comments, _, warnings = merge([dict(row("1", "a", ""), links="https://x.example"), dict(row("2", "b", ""), repost_of="9"), row("3", "c", "")], [])
+    assert [c["comment_id"] for c in comments] == ["1", "2"] and any("1 without text" in w for w in warnings)
+
+
+def test_malformed_frames_html_and_url_are_skipped_next_to_a_good_page():
+    good = {"url": "u", "json": {"hits": [{"objectID": "5", "author": "dave", "comment_text": "hi", "created_at": "2026-11-14T10:00:00Z"}]}}
+    bad = {"url": 5, "html": 7, "frames": "oops"}
+    comments, _, _ = convert({"url": "u", "pages": [bad, good, {"url": "v", "frames": [{"html": ["x"], "url": None}]}]})
+    assert [c["username"] for c in comments] == ["dave"]

@@ -259,3 +259,114 @@ def test_page_with_a_malformed_parsed_value_gives_the_unknown_parser_warning():
     page = {"url": "u", "role": "thread", "parsed": "oops"}
     comments, _, notes = convert({"url": "u", "pages": [page, {"url": "u", "role": "thread", "html": THREAD}]})
     assert any("no mapper" in n for n in notes) and comments
+
+
+# --- Bluesky and Hacker News JSON (synthetic dicts, hand-written) ---
+
+def bsky_post(uri, handle, text, root=None, parent=None, **extra):
+    record = {"text": text, "createdAt": "2026-11-14T10:00:00.000Z"}
+    if root:
+        record["reply"] = {"root": {"uri": root}, "parent": {"uri": parent or root}}
+    record.update(extra.pop("record", {}))
+    return {"uri": uri, "author": {"handle": handle, "displayName": handle.upper(), "createdAt": "2020-01-01T00:00:00.000Z"},
+            "record": record, **extra}
+
+
+def node(post, *replies):
+    return {"$type": "app.bsky.feed.defs#threadViewPost", "post": post, "replies": list(replies)}
+
+
+def test_bluesky_thread_rows_links_and_warnings():
+    facet = {"features": [{"$type": "app.bsky.richtext.facet#link", "uri": "https://a.example/x"},
+                          {"$type": "app.bsky.richtext.facet#mention", "did": "did:plc:1"}]}
+    root = bsky_post("at://r", "alice.test", "root", replyCount=9, record={"facets": [facet]},
+                     embed={"external": {"uri": "https://b.example/y"}})
+    nested = node(bsky_post("at://c2", "carol.test", "nested", root="at://r", parent="at://c1"))
+    data = {"thread": {**node(root, node(bsky_post("at://c1", "bob.test", "first", root="at://r"), nested),
+                              {"$type": "app.bsky.feed.defs#blockedPost", "uri": "at://c3"}), "threadContext": {}}}
+    rows, profiles, warnings = sites.from_json(data, "u")
+    got = by_id(rows)
+    assert list(got) == ["at://r", "at://c1", "at://c2"]
+    assert got["at://c2"]["parent_id"] == "at://c1" and got["at://c1"]["parent_id"] == "at://r" and got["at://r"]["parent_id"] == ""
+    assert {r["thread_id"] for r in rows} == {"at://r"}
+    assert got["at://r"]["links"] == "https://a.example/x https://b.example/y" and got["at://c1"]["links"] == ""
+    assert got["at://c1"]["username"] == "bob.test" and got["at://c1"]["source"] == "thread"
+    assert got["at://c1"]["timestamp"] == "2026-11-14T10:00:00.000Z"
+    assert {"username": "bob.test", "display_name": "BOB.TEST", "created_at": "2020-01-01T00:00:00.000Z", "post_count": "", "bio": ""} in profiles
+    assert warnings == ["converter: left out 1 Bluesky post not visible (blocked, deleted or not found)",
+                        "converter: read 2 of 9 replies on the Bluesky thread"]
+
+
+def test_bluesky_author_feed_reposts_have_no_text_and_survive_merge():
+    own = bsky_post("at://own", "alice.test", "mine")
+    other = bsky_post("at://other", "bob.test", "theirs")
+    reason = {"$type": "app.bsky.feed.defs#reasonRepost", "by": {"handle": "alice.test"}, "indexedAt": "2026-11-14T11:00:00Z"}
+    rows, _, warnings = sites.from_json({"feed": [{"post": own}, {"post": other, "reason": reason}]}, "u")
+    assert warnings == [] and [r["comment_id"] for r in rows] == ["at://own", "repost:alice.test:at://other"]
+    repost = rows[1]
+    assert (repost["username"], repost["text"], repost["repost_of"], repost["timestamp"], repost["source"]) == \
+        ("alice.test", "", "at://other", "2026-11-14T11:00:00Z", "history")
+    comments, _, _ = merge(rows, [])
+    assert [c["repost_of"] for c in comments] == ["", "at://other"]
+
+
+def test_bluesky_profiles_carry_bio_and_count():
+    data = {"profiles": [{"did": "d", "handle": "alice.test", "displayName": "Alice", "description": "automated account",
+                          "createdAt": "2024-05-01T00:00:00.000Z", "postsCount": 12}]}
+    rows, profiles, warnings = sites.from_json(data, "u")
+    assert rows == [] and warnings == []
+    assert profiles == [{"username": "alice.test", "display_name": "Alice", "bio": "automated account",
+                         "created_at": "2024-05-01T00:00:00.000Z", "post_count": "12"}]
+
+
+HN_ITEM = {"id": 1, "type": "story", "author": "op", "created_at": "2026-11-14T09:00:00.000Z", "parent_id": None, "story_id": 1,
+           "text": "<p>Ask: why?", "url": "https://s.example/post", "children": [
+               {"id": 2, "type": "comment", "author": "alice", "created_at": "2026-11-14T10:00:00.000Z", "parent_id": 1, "story_id": 1,
+                "text": "It&#x27;s fine<p>see <a href=\"https://x.example/a\" rel=\"nofollow\">https://x.example/...</a> now",
+                "children": [{"id": 3, "type": "comment", "author": "bob", "created_at": "2026-11-14T10:05:00.000Z",
+                              "parent_id": 2, "story_id": 1, "text": "agreed &amp; more", "children": []}]},
+               {"id": 4, "type": "comment", "author": None, "created_at": "2026-11-14T10:06:00.000Z", "parent_id": 1,
+                "story_id": 1, "text": None, "children": []}]}
+
+
+def test_hn_item_text_links_ids_and_deleted_child():
+    rows, profiles, warnings = sites.from_json(HN_ITEM, "u")
+    got = by_id(rows)
+    assert list(got) == ["1", "2", "3", "4"] and profiles == [] and warnings == []
+    assert got["2"]["text"] == "It's fine\nsee https://x.example/... now"
+    assert got["2"]["links"] == "https://x.example/a" and got["3"]["text"] == "agreed & more"
+    assert (got["3"]["parent_id"], got["3"]["thread_id"], got["2"]["timestamp"]) == ("2", "1", "2026-11-14T10:00:00.000Z")
+    assert got["1"]["text"] == "Ask: why?" and got["1"]["links"] == "https://s.example/post" and got["1"]["parent_id"] == ""
+    assert got["4"]["username"] == "" and {r["source"] for r in rows} == {"thread"}
+    comments, _, notes = merge(rows, [])
+    assert [c["comment_id"] for c in comments] == ["1", "2", "3"]
+    assert any("1 comment by an anonymous" in w for w in notes)
+
+
+def test_hn_story_without_text_is_not_a_row_but_a_link_only_story_is_kept_by_merge():
+    rows, _, _ = sites.from_json({"id": 7, "type": "story", "author": "op", "story_id": 7, "url": "https://s.example", "children": []}, "u")
+    assert [r["comment_id"] for r in rows] == ["7"] and rows[0]["links"] == "https://s.example" and rows[0]["text"] == ""
+    assert [c["comment_id"] for c in merge(rows, [])[0]] == ["7"]
+
+
+def test_hn_search_hits_are_history_rows():
+    hits = {"hits": [{"objectID": "2", "author": "alice", "comment_text": "<p>hi &lt;b&gt;", "created_at": "2026-11-14T10:00:00.000Z",
+                      "parent_id": 1, "story_id": 1}]}
+    rows, profiles, warnings = sites.from_json(hits, "u")
+    assert profiles == [] and warnings == []
+    assert rows == [{"comment_id": "2", "username": "alice", "display_name": "", "text": "hi <b>", "timestamp": "2026-11-14T10:00:00.000Z",
+                     "parent_id": "1", "thread_id": "1", "source": "history", "links": "", "repost_of": ""}]
+    both = sites.from_json(HN_ITEM, "u")[0] + rows
+    assert [c["comment_id"] for c in merge(both, [])[0]].count("2") == 1
+
+
+def test_unknown_json_and_missing_keys_do_not_crash():
+    assert sites.from_json({"x": 1}, "p") == ([], [], ["converter: unrecognised JSON on p"])
+    assert sites.from_json([1], "p")[2] == ["converter: unrecognised JSON on p"]
+    odd = {"thread": {"post": {"uri": "at://r", "author": None}, "replies": [None, {"$type": "app.bsky.feed.defs#threadViewPost", "post": {}},
+                                                                             node({"uri": "at://x", "author": {"handle": "a"}, "record": None})]}}
+    rows, _, _ = sites.from_json(odd, "p")
+    assert [r["comment_id"] for r in rows] == ["at://r", "", "at://x"]
+    assert sites.from_json({"feed": [None, {"post": None}, {"reason": 3}]}, "p")[0] == []
+    assert sites.from_json({"id": 1, "children": [None, {"id": None, "children": "x"}], "text": None}, "p")[0][0]["comment_id"] == ""
+    assert sites.from_json({"hits": [None, {"objectID": None}]}, "p")[0][0]["comment_id"] == ""
