@@ -109,7 +109,7 @@ def from_html(html, page_url):
     return rows, [], warnings
 
 
-def _reddit_user(data):
+def _reddit_user(data, page_url):
     user = data.get("user") or {}
     name = user.get("username") or ""
     rows = [{"comment_id": c.get("id") or "", "username": name, "display_name": "", "text": c.get("body") or "",
@@ -119,7 +119,82 @@ def _reddit_user(data):
     return rows, [{"username": name, "display_name": "", "created_at": user.get("created_at") or "", "post_count": ""}], []
 
 
-MAPPERS = {"reddit-user": _reddit_user}
+def _review_rows(items, thread_id, fields, count=lambda item: ""):
+    """Rows (and profiles with a post count) for a list of reviews; fields(item) -> (username, display_name, text, timestamp)."""
+    rows, profiles = [], []
+    for item in items or []:
+        username, display_name, text, timestamp = fields(item)
+        rows.append({"comment_id": item.get("id") or "", "username": username, "display_name": display_name, "text": text,
+                     "timestamp": timestamp, "parent_id": "", "thread_id": thread_id, "source": "thread"})
+        if username and text and count(item) != "":  # no profile for someone whose row the merge drops
+            profiles.append({"username": username, "display_name": display_name, "created_at": "", "post_count": count(item)})
+    return rows, profiles, []
+
+
+def _join(*parts):
+    return "\n".join(p for p in parts if p)
+
+
+def _names_only(kind, mapper):
+    note = f"converter: {kind} gives display names only: two people with the same name count as one account"
+    return lambda data, page_url: (*mapper(data, page_url)[:2], [note])
+
+
+def _google_maps(data, page_url):
+    def who(r):
+        u = r.get("user") or {}
+        m = re.search(r"contrib/(\d+)", u.get("link") or "")
+        return m.group(1) if m else u.get("name") or "", u.get("name") or "", r.get("snippet") or "", r.get("isoDate") or ""
+    return _review_rows(data.get("reviews"), data.get("featureId") or data.get("cid") or "", who,
+                        lambda r: (r.get("user") or {}).get("reviews", ""))
+
+
+def _app_store(data, page_url):
+    author = lambda r: (r.get("author") or "", r.get("author") or "", _join(r.get("title"), r.get("text")), r.get("created_at") or "")
+    return _review_rows(data.get("reviews"), data.get("app_id") or "", author)
+
+
+def _google_play(data, page_url):
+    author = lambda r: (r.get("author") or "", r.get("author") or "", r.get("text") or "", r.get("created_at") or "")
+    return _review_rows(data.get("reviews"), data.get("app_id") or "", author)
+
+
+def _tripadvisor(data, page_url):
+    def who(r):
+        a = r.get("author") or {}
+        return a.get("username") or a.get("id") or "", a.get("name") or "", _join(r.get("title"), r.get("text")), r.get("published_at") or ""
+    return _review_rows(data.get("reviews"), (data.get("location") or {}).get("id") or "", who,
+                        lambda r: (r.get("author") or {}).get("contribution_count", ""))
+
+
+def _yelp(data, page_url):
+    def who(r):
+        a = r.get("author") or {}
+        return a.get("id") or "", a.get("name") or "", r.get("text") or "", r.get("updated_at") or ""
+    return _review_rows(data.get("reviews"), (data.get("business") or {}).get("id") or "", who,
+                        lambda r: (r.get("author") or {}).get("review_count", ""))
+
+
+def _g2(data, page_url):
+    def who(r):
+        name = (r.get("reviewer") or {}).get("name") or ""
+        return name, name, _join(r.get("likes"), r.get("dislikes"), r.get("problems_solved")), r.get("published_at") or ""
+    return _review_rows(data.get("reviews"), (data.get("product") or {}).get("slug") or "", who)
+
+
+def _tiktok(data, page_url):
+    def who(c):
+        a = c.get("author") or {}
+        return a.get("username") or "", a.get("nickname") or "", c.get("text") or "", c.get("posted_at") or ""
+    video = re.search(r"/video/(\d+)", page_url or "")
+    return _review_rows(data.get("comments"), video.group(1) if video else "", who)
+
+
+MAPPERS = {"reddit-user": _reddit_user, "google-maps-reviews": _google_maps,
+           "app-store-reviews": _names_only("app-store-reviews", _app_store),
+           "google-play-reviews": _names_only("google-play-reviews", _google_play),
+           "tripadvisor-reviews": _tripadvisor, "yelp-reviews": _yelp,
+           "g2-reviews": _names_only("g2-reviews", _g2), "tiktok-comments": _tiktok}
 
 
 def from_parsed(parsed, page_url):
@@ -129,4 +204,4 @@ def from_parsed(parsed, page_url):
         return [], [], [f"converter: no mapper for parser {kind}"]
     if not parsed.get("success"):
         return [], [], [f"converter: Context.dev parser {kind} failed: {parsed.get('error_code') or parsed.get('error') or 'unknown'}"]
-    return MAPPERS[kind](parsed.get("data") or {})
+    return MAPPERS[kind](parsed.get("data") or {}, page_url)

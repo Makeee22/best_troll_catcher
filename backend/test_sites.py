@@ -121,3 +121,94 @@ def test_footer_and_script_after_the_last_comment_do_not_leak_into_the_text():
             '<div id="t1_a-comment-rtjson-content"><p>last<p>x</div></shreddit-comment>'
             '<footer>Terms Privacy Help</footer><script>var x=1;</script></body>')
     assert by_id(sites.from_html(html, "u")[0])["a"]["text"] == "last\nx"
+
+
+# Synthetic Context.dev parser output (hand-written, no real reviews).
+def parsed(kind, data):
+    return {"type": kind, "success": True, "data": data}
+
+
+def first(kind, data, url="u"):
+    rows, profiles, warnings = sites.from_parsed(parsed(kind, data), url)
+    r = rows[0]
+    return (r["comment_id"], r["username"], r["display_name"], r["text"], r["timestamp"], r["thread_id"], r["source"]), rows, profiles, warnings
+
+
+def names_only(kind):
+    return f"converter: {kind} gives display names only: two people with the same name count as one account"
+
+
+def test_google_maps_mapper():
+    data = {"featureId": "0xf:0x1", "cid": "123", "reviews": [
+        {"id": "r1", "snippet": "great", "isoDate": "2026-11-14T10:00:00Z", "user": {"name": "Ann", "link": "https://x/maps/contrib/1234567/reviews", "reviews": 12}},
+        {"id": "r2", "isoDate": "2026-11-14T11:00:00Z", "user": {"name": "Bo", "reviews": 5}}]}
+    row, rows, profiles, warnings = first("google-maps-reviews", data)
+    assert row == ("r1", "1234567", "Ann", "great", "2026-11-14T10:00:00Z", "0xf:0x1", "thread")
+    assert rows[1]["username"] == "Bo" and rows[1]["text"] == ""  # no link: the name; rating-only: no snippet
+    assert profiles == [{"username": "1234567", "display_name": "Ann", "created_at": "", "post_count": 12}]
+    assert warnings == []
+    assert sites.from_parsed(parsed("google-maps-reviews", {"cid": "9", "reviews": [{}]}), "u")[0][0]["thread_id"] == "9"
+
+
+def test_app_store_mapper_warns_about_display_names():
+    data = {"app_id": "42", "reviews": [{"id": "a1", "author": "Ann", "title": "Nice", "text": "works", "created_at": "2026-11-14T10:00:00Z"}, {}]}
+    row, rows, _, warnings = first("app-store-reviews", data)
+    assert row == ("a1", "Ann", "Ann", "Nice\nworks", "2026-11-14T10:00:00Z", "42", "thread")
+    assert rows[1]["text"] == "" and rows[1]["username"] == ""
+    assert warnings == [names_only("app-store-reviews")]
+
+
+def test_google_play_mapper_warns_about_display_names():
+    data = {"app_id": "com.x", "reviews": [{"id": "p1", "author": "Ann", "text": "ok", "created_at": "2026-11-14T10:00:00Z"}]}
+    row, _, _, warnings = first("google-play-reviews", data)
+    assert row == ("p1", "Ann", "Ann", "ok", "2026-11-14T10:00:00Z", "com.x", "thread")
+    assert warnings == [names_only("google-play-reviews")]
+
+
+def test_tripadvisor_mapper():
+    data = {"location": {"id": "L1"}, "reviews": [
+        {"id": "t1", "title": "Nice", "text": "stay", "published_at": "2026-11-14T10:00:00Z", "author": {"username": "ann_u", "id": "A1", "name": "Ann", "contribution_count": 7}},
+        {"id": "t2", "text": "x", "author": {"id": "A2", "name": "Bo"}}]}
+    row, rows, profiles, warnings = first("tripadvisor-reviews", data)
+    assert row == ("t1", "ann_u", "Ann", "Nice\nstay", "2026-11-14T10:00:00Z", "L1", "thread")
+    assert rows[1]["username"] == "A2" and rows[1]["text"] == "x"  # no title: no stray newline
+    assert profiles == [{"username": "ann_u", "display_name": "Ann", "created_at": "", "post_count": 7}]
+    assert warnings == []
+
+
+def test_yelp_mapper():
+    data = {"business": {"id": "B1"}, "reviews": [
+        {"id": "y1", "text": "tasty", "updated_at": "2026-11-14T10:00:00Z", "author": {"id": "Y1", "name": "Ann", "review_count": 3}}, {}]}
+    row, rows, profiles, warnings = first("yelp-reviews", data)
+    assert row == ("y1", "Y1", "Ann", "tasty", "2026-11-14T10:00:00Z", "B1", "thread")
+    assert rows[1]["username"] == "" and rows[1]["text"] == ""
+    assert profiles == [{"username": "Y1", "display_name": "Ann", "created_at": "", "post_count": 3}]
+    assert warnings == []
+
+
+def test_g2_mapper_joins_parts_and_warns():
+    data = {"product": {"slug": "acme"}, "reviews": [
+        {"id": "g1", "likes": "fast", "dislikes": "", "problems_solved": "reports", "published_at": "2026-11-14T10:00:00Z", "reviewer": {"name": "Ann"}},
+        {"id": "g2", "likes": "ok", "reviewer": {"name": "Verified User in Computer Software"}}]}
+    row, rows, _, warnings = first("g2-reviews", data)
+    assert row == ("g1", "Ann", "Ann", "fast\nreports", "2026-11-14T10:00:00Z", "acme", "thread")
+    assert rows[1]["username"] == "Verified User in Computer Software"  # mapped as is: the merge drops it
+    assert warnings == [names_only("g2-reviews")]
+    comments, _, notes = convert({"url": "u", "pages": [{"url": "u", "role": "thread", "parsed": parsed("g2-reviews", data)}]})
+    assert [c["username"] for c in comments] == ["Ann"]
+    assert any("anonymous" in n for n in notes)
+
+
+def test_tiktok_mapper_takes_the_video_id_from_the_page_url():
+    data = {"comments": [{"id": "k1", "text": "hi", "posted_at": "2026-11-14T10:00:00Z", "author": {"username": "ann", "nickname": "Ann"}}, {}]}
+    row, rows, _, warnings = first("tiktok-comments", data, "https://www.tiktok.com/@someone/video/7106594312292453675")
+    assert row == ("k1", "ann", "Ann", "hi", "2026-11-14T10:00:00Z", "7106594312292453675", "thread")
+    assert rows[1]["thread_id"] == "7106594312292453675" and rows[1]["text"] == ""
+    assert warnings == []
+    assert first("tiktok-comments", data, "https://www.tiktok.com/@someone")[0][5] == ""
+
+
+def test_every_mapper_survives_an_empty_item_and_empty_data():
+    for kind in sites.MAPPERS:
+        assert sites.from_parsed(parsed(kind, {}), "u")[0] == []
+        assert sites.from_parsed({"type": kind, "success": True}, "u")[0] == []
