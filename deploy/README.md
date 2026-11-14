@@ -50,7 +50,7 @@ docker logs --tail=50 traefik-traefik-1                 # routing or certificate
 ```
 
 - 404 from Traefik: the `web` container is not running or lost its labels (was it started without the hostinger file?).
-- The upload limit is 20 MB for both files together, in two places that must agree: `MAX_BYTES` in `frontend/api/app.py` and `client_max_body_size` in `frontend/nginx.conf`.
+- Upload limits: 20 MB for both CSV files together (`MAX_BYTES` in `frontend/api/app.py`) and 100 MB for a saved Reddit page (`MAX_PAGE_BYTES` in `frontend/api/jobs.py`, `MAX_PAGE_BYTES` in `frontend/site/app.js`). `client_max_body_size` in `frontend/nginx.conf` (101m) must stay above the larger one.
 - One result in memory, shared by every visitor: an upload replaces it for everybody until the next upload or restart.
 
 ## Anywhere else

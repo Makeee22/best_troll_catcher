@@ -5,6 +5,7 @@
 const API = (new URLSearchParams(location.search).get("api") || window.SWARM_API_BASE || "").replace(/\/+$/, "");
 const MAX_BYTES = 20 * 1024 * 1024; // both files together; same limit as the API and nginx
 const MAX_EDGE_ROWS = 100;
+const MAX_PAGE_BYTES = 100 * 1024 * 1024; // a saved Reddit page; same limit as MAX_PAGE_BYTES in api/jobs.py and nginx
 
 const $ = (id) => document.getElementById(id);
 
@@ -794,13 +795,13 @@ async function pollJob(id) {
   }
 }
 
-async function startJob(card, request, cannot) {
+async function startJob(card, request, cannot, startingText) {
   jobStatus();
   jobCard = card;
   showError("");
   jobError("");
   setJobBusy(true);
-  jobStatus(h("span", null, "Starting…"));
+  jobStatus(h("span", null, startingText || "Starting…"));
   try {
     const job = await request();
     history.replaceState(null, "", "#job=" + job.id);
@@ -815,10 +816,12 @@ async function startJob(card, request, cannot) {
 function startReddit(file) {
   jobCard = "reddit";
   if (!file) return jobError("Choose the saved thread page (.html) first.");
-  if (file.size > 15 * 1024 * 1024) return jobError("The saved page is larger than 15 MB.");
+  if (file.size > MAX_PAGE_BYTES) return jobError("The saved page is larger than 100 MB.");
   const form = new FormData();
   form.append("page", file, file.name);
-  return startJob("reddit", () => api("/api/jobs/reddit", { method: "POST", body: form }), "This server cannot analyse Reddit threads yet.")
+  const mb = file.size / (1024 * 1024);
+  return startJob("reddit", () => api("/api/jobs/reddit", { method: "POST", body: form }), "This server cannot analyse Reddit threads yet.",
+    mb > 10 ? "Uploading and reading a " + Math.round(mb) + " MB page… large pages take up to a couple of minutes." : null)
     .finally(() => { $("reddit-file").value = ""; });
 }
 

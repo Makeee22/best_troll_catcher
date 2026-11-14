@@ -34,7 +34,8 @@ from swarm import collect as swarm_collect
 from swarm.convert import ConvertError, convert as convert_bundle
 from swarm.load import COMMENT_COLUMNS, InputError, PROFILE_COLUMNS
 
-MAX_PAGE_BYTES = 15 * 1024 * 1024
+MAX_PAGE_BYTES = 100 * 1024 * 1024   # a saved Reddit page; keep in step with app.js and client_max_body_size in nginx.conf
+                                     # (measured: a 75 MB page converts in ~46 s with ~370 MB of Python memory)
 HISTORY = 25          # newest comments per commenter (B11: ~15; 25 for margin, 1 credit each either way)
 MAX_USERS = 150       # commenters whose history is fetched; the rest are analysed on their thread comments only
 BLUESKY_HISTORY = 30  # newest posts, replies and reposts per participant (1 request each)
@@ -333,7 +334,7 @@ def register(app, analyze, analysis_lock):
         _cleanup()
         raw = page.file.read(MAX_PAGE_BYTES + 1)
         if len(raw) > MAX_PAGE_BYTES:
-            raise HTTPException(413, "The saved page is larger than 15 MB.")
+            raise HTTPException(413, f"The saved page is larger than {MAX_PAGE_BYTES // (1024 * 1024)} MB.")
         try:
             bundle, authors, post, rows = _reddit_bundle(raw)
         except ConvertError:
