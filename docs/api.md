@@ -188,6 +188,7 @@ python -m swarm COMMENTS [--profiles FILE] [--out FILE] [--min-confidence X] [--
 - A bad input ends with one line `error: <what to fix>` and exit code 2, never a traceback.
 - `python -m swarm.synthetic DIR` writes the synthetic sample (`comments.csv`, `profiles.csv`) into `DIR`.
 - `python -m swarm.cresci SOURCE_DIR OUT_DIR` converts the Cresci 2017 dataset (research use only, never committed) to the same two files.
+- `python -m swarm.convert INPUT OUT_DIR` turns a raw bundle (`.json`) or a saved page (`.html`) into the same two files: Reddit pages and histories, Context.dev's review and comment parsers, Bluesky and Hacker News API responses. The bundle format is `docs/collect-interface.md`.
 
 The same result is available in Python: `swarm.core.analyze(comments_path, profiles_path=None)` returns it as a dictionary.
 

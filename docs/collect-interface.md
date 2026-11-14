@@ -1,14 +1,16 @@
 # From a URL to the core: who does what
 
-Agreed 14.11.2026 afternoon between the backend owner (Arde1001) and the front-end + infrastructure owner (Makeee22). This file is the contract between the two halves, like `docs/api.md` is between the API and the page. Change it together.
+Agreed 14.11.2026 afternoon between the backend owner (Arde1001) and the front-end + infrastructure owner (Makeee22); **changed 14.11 evening: the backend owner now owns both halves, collect and convert**, the whole path from a URL to the result JSON. The front-end owner works from the returned result on (the dashboard, explanations). This file is the contract for the raw bundle and for how the front end calls the converter; the result JSON is `docs/api.md`.
 
 ```
-URL ──► [1. COLLECT: Makeee22]  ──►  raw bundle  ──►  [2. CONVERT: Arde1001]  ──►  comments.csv + profiles.csv  ──►  core
+URL ──► [1. COLLECT: Arde1001] ──►  raw bundle  ──►  [2. CONVERT: Arde1001]  ──►  comments.csv + profiles.csv  ──►  core
          get everything the page                       site-specific parsing
          and its commenters have                       into the standard format
 ```
 
-## 1. Collect (front end + infrastructure, `frontend/api/`)
+## 1. Collect (backend, `backend/swarm/collect`, being built 14.11 evening)
+
+Written first by the front-end owner in `frontend/api/` (`contextdev.py` for Reddit histories, `bluesky.py` for Bluesky threads, both live on the site). These move to `backend/swarm/collect` and grow there (Hacker News, Context.dev's review parsers next); the front-end files stay until the site switches to the backend's collector, so nothing breaks meanwhile. The collector needs network access and, for Context.dev, the `CONTEXT_DEV_API_KEY`; the core (`analyze()`) never imports it and stays offline.
 
 Given a URL, fetch as much of the page's discussion as can be had for free and without logging in:
 
@@ -23,7 +25,7 @@ Tools: Context.dev (`web-scrape` with JavaScript rendering, `includeFrames`, pre
 
 Given a raw bundle, produce `comments.csv` and, when there is profile data, `profiles.csv` in the standard format (`docs/api.md`, "Input files"). One converter per site kind, plus a generic fallback. The core stays unchanged.
 
-`frontend/api/reddit_html.py` (a Reddit thread page saved from the browser → comments) and `contextdev.to_rows()` (Reddit histories → rows) were written before this split. **They belong in the converter half:** the backend owner may move or rewrite them; the front end will then call the backend's converter instead.
+Done 14.11 evening: the site's Reddit jobs already call the backend's converter (`1899188`); `frontend/api/reddit_html.py` is used only for the thread's title. Bluesky rows on the site still come from `frontend/api/bluesky.py` until the collector moves.
 
 ### How to call the converter (for the front end)
 
@@ -76,7 +78,7 @@ result["warnings"] = warnings + result["warnings"]                 # "read 188 o
 
 ### Converter design
 
-Approved by the backend owner on 14.11 at about 18:00. It gets built after the website works end to end. It covers approaches A (site adapters) and B (schema.org markup); C (a generic repeated-block fallback) is an extra if time is left.
+Approved by the backend owner on 14.11 at about 18:00; built the same evening (on `main`: Reddit, the Context.dev parsers, Bluesky, Hacker News; schema.org in review). It covers approaches A (site adapters) and B (schema.org markup); C (a generic repeated-block fallback) is an extra if time is left.
 
 - **One module, `backend/swarm/convert.py`:** standard library only, with no network access.
   - `convert(bundle)` returns `(comment_rows, profile_rows, warnings)`.
@@ -148,7 +150,7 @@ The converter can rely on: UTF-8 strings; times in ISO 8601 UTC; usernames as th
 
 | Site | Thread comments | Commenters' histories | Notes |
 |---|---|---|---|
-| Reddit | Only from a page saved in the browser (~25 comments; the rest behind "load more"). Context.dev's `reddit-post` parser returns an empty comment list (reported to Context.dev). | Yes: `reddit-user` parser, 25 newest comments, about 1 credit and 0.4 s each | Live on the site as "Analyse a Reddit thread" |
+| Reddit | Only from a page saved in the browser: whatever the browser had loaded (188 comments on the saved test page; the rest behind "load more"). Context.dev's `reddit-post` parser returns an empty comment list (reported to Context.dev). | Yes: `reddit-user` parser, 25 newest comments, about 1 credit and 0.4 s each | Live on the site as "Analyse a Reddit thread" |
 | X / Twitter | 3 replies, then a login wall | 5–6 posts, then a login wall | Not usable without logging in |
 | **Bluesky** | **Yes, complete:** the public API `app.bsky.feed.getPostThread` (no login, depth 1000) gives every public reply, nested ones included. Replies that are deleted, hidden or blocked are missing; the sum of Bluesky's own `replyCount` over the posts we read says how many there should be. | **Yes:** public `app.bsky.feed.getAuthorFeed` (newest 30 posts, replies and reposts per participant, one request each); `app.bsky.actor.getProfiles` for creation date, bio and counts, 25 accounts per call | **Done: `frontend/api/bluesky.py`, on the site as "Analyse a discussion from a link"** (`POST /api/jobs/url`). Every request goes through Context.dev (`web-scrape` with `formats.bytes`, the untouched response body; about 1 credit each) with a direct request to the same public endpoint as fallback when Context.dev does not answer in 10 s. Measured 14.11 with 2 requests at a time: 43 replies from 38 participants in 17–100 s for 42 credits; 158 replies from 143 participants in 333 s for 147 credits (Context.dev took 1.5–5 s per request then); the core ran all four signals on 4,209 rows in 1.4 s. |
 | **Hacker News** | **Yes, complete:** the public Algolia API `hn.algolia.com/api/v1/items/{id}` returned all 1,124 comments from 717 commenters of one story, with `parent_id` and times | Yes: Algolia search by author (`tags=comment,author_NAME`) | Collector next, after Bluesky |

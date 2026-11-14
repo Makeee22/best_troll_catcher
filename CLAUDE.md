@@ -38,12 +38,13 @@ One owner per directory. This is how four people avoid git conflicts.
 
 | Role | Owns |
 |---|---|
-| **Backend** (Arde1001) | `backend/`, `docs/api.md`, `CLAUDE.md` |
-| **Front end + infrastructure** (Makeee22) | `frontend/`, `deploy/`, `docker-compose.yml` |
+| **Backend + collection** (Arde1001) | `backend/` (the core, the collector and the converter), `docs/api.md`, `docs/collect-interface.md`, `CLAUDE.md` |
+| **Front end + infrastructure** (Makeee22) | `frontend/` (the dashboard and what it does with the returned result), `deploy/`, `docker-compose.yml` |
 | **Presentation + documentation** (J0l3s) | `docs/pitch/`, `README.md`, `PLAN.md` |
 | **Data + detection criteria** (TheSnowman99) | `data/`, `docs/criteria.md` |
 
 - If it is unclear which role the current user has, ask before editing.
+- **Split agreed 14.11 evening:** the backend owner owns the whole path from a URL to the result JSON: collect (Context.dev and public APIs) → convert → `analyze()`. The front-end owner owns everything from the returned result on: the dashboard and its explanations. The old collectors in `frontend/api/` (`bluesky.py`, `contextdev.py`, `reddit_html.py`, the collection part of `jobs.py`) stay until the backend's `swarm.collect` replaces them; then the front end calls it.
 - Code directories belong to their role: edit only that role's directories. If a change is needed elsewhere, say so and let the user ask the owner.
 - Documentation (`docs/`, `README.md`, `PLAN.md`, this file) may be edited by anyone. If two edits conflict, tell the user and the original owner's version wins.
 - The front end and the backend meet only at `docs/api.md`. The backend owner changes it and announces the change; the front end builds against mock JSON until the real endpoint exists.
@@ -83,7 +84,7 @@ One owner per directory. This is how four people avoid git conflicts.
 ## Resources
 
 - **Hostinger VPS** (KVM 2): 2 vCPU, 8 GB RAM, 100 GB disk, root access, Docker, free domain.
-- **Hostinger AI Router**: one key for 150+ models, compatible with the OpenAI and Anthropic SDKs. Used for the decision model.
+- **Hostinger AI Router**: one key for 150+ models, compatible with the OpenAI and Anthropic SDKs. Used by the website to explain a cluster in plain language (never to decide who is flagged).
 - **Hostinger AI Builder**: optional, for a front end or landing page.
 - **Hostinger MCP**: `claude mcp add --transport http hostinger https://mcp.hostinger.com` (browser sign-in). Docs: `docs.hostinger.com/hostinger-connector`.
 - **Context.dev**: search, scrape, crawl, news search, monitors with webhooks, batch API. Docs: `docs.context.dev`.
@@ -107,7 +108,7 @@ COMMENTS_FILE=c.csv [PROFILES_FILE=p.csv] .venv/bin/uvicorn swarm.api:app   # AP
 docker build -t swarm-backend .                                         # image; serves on port 8000
 ```
 
-Front end and deploy: not written yet.
+Front end and deploy: `frontend/README.md` and `deploy/README.md` (Makeee22). Live at https://swarm.srv2159299.hstgr.cloud.
 
 ## Architecture
 
@@ -125,4 +126,4 @@ One DuckDB connection per run carries the data through four stages; each is a mo
 - `backend/swarm/inject.py`: the injection benchmark. Plants simulated swarms (size, copied messages, own posts, edited or reworded copies) into a background file and runs `analyze()` on each. Run it after every change to detection.
 - `backend/swarm/api.py`: read-only FastAPI app serving one result, fixed at startup (`RESULT_FILE`, else `COMMENTS_FILE` + `PROFILES_FILE`, else the synthetic sample). A bad file stops startup with a message. The contract is `docs/api.md`.
 - Tests: one `backend/test_*.py` per module; `conftest.py` has the `make_csv` helper.
-- Not built yet (part 2, the website): the upload and `POST` endpoints, the language-model explanation, collecting comments with Context.dev, the front end, deploy.
+- The website (Makeee22): `frontend/site/` (static dashboard), `frontend/api/` (the backend's API plus upload, background jobs for Reddit and Bluesky, and a cluster explanation by a language model). Collection from a link moves to `backend/swarm/collect` (see the split above).
