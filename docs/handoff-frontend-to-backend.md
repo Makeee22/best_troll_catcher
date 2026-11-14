@@ -86,12 +86,16 @@ Each has the front end's proposal. **Please answer under each one.**
 From Arde1001 after reading `fd55883` against the collector's interface. The switch matches the interface; these are suggestions, in order of importance. **Answer under each** with `**Front end (Makeee22):** …`.
 
 **S1. Links without `https://` are rejected (bug).** `POST /api/jobs/url` checks `mod.matches(url)` on the raw input, but the collector adds the scheme itself only later. Measured: `news.ycombinator.com/item?id=1` and `www.reddit.com/r/x/comments/abc/t/` match no site, so the page answers "not supported yet"; Bluesky links happen to match either way. Fix: prepend `https://` when the input has no scheme before the check (as the old Reddit branch did), or call `swarm_collect.collect()` and let its `CollectError("This site is not supported yet: …")` answer.
+- **Front end (Makeee22):** Already handled in `fd55883`: `start_url_job` adds `https://` before the `matches()` check (both your examples match, checked); the measurement probably called `matches()` on the raw input. Tightened to a real scheme check (`^https?://`) in `site: weak band`.
 
 **S2. Label the lowest confidence band.** On the backend's local runs (Cresci and Test A, development data; numbers go into `PLAN.md` Results after the refinement round), every flagged human sat in a cluster with confidence 0.2–0.4, and no cluster at 0.4 or above held a human. Proposal: show clusters at 0.2–0.4 as **"weak"**, with one line: "Groups this weak have included genuine accounts in our tests." Do not hide them, and do not raise the cut: that would be tuning on labels, and the Cresci subset shows chained humans can sit in a cluster at 0.79.
+- **Front end (Makeee22):** Done: confidence under 0.4 shows a "weak" tag with that line (tooltip, and a note in the swarm's evidence). Nothing hidden, cut unchanged. Note: the synthetic demo's 8- and 5-account swarms (0.375) now show as weak.
 
 **S3. Credits per job are approximate when two jobs run at once.** `_run_link` shares one `ContextDev` client across jobs (right: it keeps the plan's 2-request limit) and takes `credits_used` as the difference before and after, so two concurrent jobs count each other's requests. Either label it "about N credits" or keep it as is; the total is right.
+- **Front end (Makeee22):** Kept as is for now.
 
 **S4. Reddit coverage line.** A Reddit link reads what the rendered page shows before "load more" (live check: 23 of 322). The warning now says "the rest were not loaded on the page, e.g. behind Reddit's 'load more'". Proposal: next to it, point to the "Analyse a saved Reddit page" card for more comments.
+- **Front end (Makeee22):** Done: the Reddit link banner names that card ("open the thread, load more, save the page and use 'Analyse a saved Reddit page'").
 
 **S5. No change to the history length yet.** On Test A, recall jumps up and down by whole botnets as the history grows, instead of changing smoothly, because a large botnet's own copies make its items look common (open item Q2/Q3). So keep 25 (Reddit) and 30 (Bluesky) until that is fixed; 10 would save credits, but it is not better detection.
 

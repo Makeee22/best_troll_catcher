@@ -318,7 +318,7 @@ def register(app, analyze, analysis_lock):
             raise HTTPException(400, "Give the link of one Reddit thread: https://www.reddit.com/r/NAME/comments/ID/...")
         if re.match(r"^(?:https?://)?(?:www\.)?bsky\.app(?:/|$)", url, re.I) and not bluesky.is_bluesky(url):
             raise HTTPException(400, "Give the link of one Bluesky post: https://bsky.app/profile/NAME/post/ID.")
-        if not url.lower().startswith("http"):
+        if not re.match(r"^https?://", url, re.I):
             url = "https://" + url
         if not any(mod.matches(url) for _, mod in swarm_collect.SITES):
             raise HTTPException(400, "This site is not supported yet. Links that work: a Bluesky post, a Reddit thread, "

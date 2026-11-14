@@ -43,6 +43,7 @@ button.primary { background: var(--accent); color: var(--card); border-color: va
 .conf-bar { display: inline-block; width: 70px; height: 8px; border-radius: 4px; background: var(--chip); border: 1px solid var(--line); overflow: hidden; }
 .conf-bar span { display: block; height: 100%; background: var(--accent); }
 .conf-num { font-variant-numeric: tabular-nums; font-weight: 600; font-size: .9rem; }
+.weak { border: 1px solid var(--line); border-radius: 999px; padding: 0 7px; font-size: .78rem; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; }
 .pill { display: inline-block; background: var(--chip); border: 1px solid var(--line); border-radius: 999px; padding: 2px 10px; font-size: .9rem; }
 .note-plain { border-left: 3px solid var(--warn-bg); padding: 4px 0 4px 10px; font-size: .9rem; }
 tr.current td { font-weight: 600; }

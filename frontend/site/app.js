@@ -81,11 +81,18 @@ function setBusy(text) {
   for (const id of ["try-sample", "analyse", "comments-file", "profiles-file"]) $(id).disabled = !!text;
 }
 
+// Handoff S2: every genuine account flagged in the backend's labelled runs sat in a cluster under 0.4.
+// Labelled "weak", never hidden, and the cut is not raised (that would be tuning on labels).
+const WEAK_BELOW = 0.4;
+const WEAK_NOTE = "Groups this weak have included genuine accounts in our tests.";
+const isWeak = (x) => typeof x === "number" && x < WEAK_BELOW;
+
 function confidenceBar(x) {
   const value = typeof x === "number" ? Math.max(0, Math.min(1, x)) : 0;
-  return h("span", { class: "conf", title: "confidence " + fmtConf(x) },
+  return h("span", { class: "conf", title: "confidence " + fmtConf(x) + (isWeak(x) ? ". Weak: " + WEAK_NOTE : "") },
     h("span", { class: "conf-bar" }, h("span", { style: "width:" + (value * 100).toFixed(0) + "%" })),
-    h("span", { class: "conf-num" }, fmtConf(x)));
+    h("span", { class: "conf-num" }, fmtConf(x)),
+    isWeak(x) ? h("span", { class: "weak" }, "weak") : null);
 }
 
 // ---- loading ----
@@ -405,7 +412,9 @@ function renderDetail(d) {
   $("detail").replaceChildren(
     h("h3", null, "Swarm " + d.id + ": " + d.size + " accounts"),
     h("p", null, "Confidence ", confidenceBar(d.confidence)),
-    h("p", { class: "muted" }, "Active from " + fmtTime(d.first_seen) + " to " + fmtTime(d.last_seen) + "."),
+    isWeak(d.confidence) ? h("p", { class: "note-plain" }, "Weak group (confidence under " + WEAK_BELOW + "). " + WEAK_NOTE +
+      " Check the evidence below before acting on it.") : null,
+    h("p", { class: "muted" }, "Active from" + fmtTime(d.first_seen) + " to " + fmtTime(d.last_seen) + "."),
     created ? h("p", null, h("span", { class: "pill" },
       created.accounts + " of " + created.of + " accounts were created within one 30-day window"),
       h("span", { class: "muted" }, " Supporting evidence only; it does not change the confidence.")) : null,
@@ -601,7 +610,7 @@ function bannerLines(job) {
     h("p", { class: "muted" },
       "Read " + t.comments_found + (t.comments_expected != null ? " of " + t.comments_expected : "") +
       (t.url ? " comments from the thread link" : " comments from the saved page") +
-      (missing ? (t.url ? " (the rest are behind “load more”: save the page after loading more to include them)"
+      (missing ? (t.url ? " (the rest are behind “load more”: open the thread, load more, save the page and use “Analyse a saved Reddit page” to include them)"
                         : " (the rest were behind “load more” when the page was saved)") : "") + ". Fetched the newest " +
       t.history_per_commenter + " comments of " + job.histories_ok + " commenters with Context.dev" + failed + cost),
   ];
