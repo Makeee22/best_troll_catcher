@@ -113,6 +113,7 @@ def merge(rows, profiles):
         r["parent_id"] = alias.get(r["parent_id"], r["parent_id"])
     # display_name lives on comment rows; the core reads it from profiles
     named = [{"username": r["username"], "display_name": r["display_name"]} for r in comments if r.get("display_name")]
+    profiles = [p for p in profiles if not is_anonymous(str(p.get("username") or ""))]  # same rule as for comments
     return comments, _merge_profiles(profiles + named), warnings
 
 

@@ -1,5 +1,5 @@
 from swarm import sites
-from swarm.convert import convert
+from swarm.convert import convert, merge
 
 # Synthetic page in the shape of a saved Reddit thread (hand-written, no real comments).
 THREAD = """
@@ -145,7 +145,7 @@ def test_google_maps_mapper():
     row, rows, profiles, warnings = first("google-maps-reviews", data)
     assert row == ("r1", "1234567", "Ann", "great", "2026-11-14T10:00:00Z", "0xf:0x1", "thread")
     assert rows[1]["username"] == "Bo" and rows[1]["text"] == ""  # no link: the name; rating-only: no snippet
-    assert profiles == [{"username": "1234567", "display_name": "Ann", "created_at": "", "post_count": 12}]
+    assert profiles == [{"username": "1234567", "display_name": "Ann", "created_at": "", "post_count": "12"}]
     assert warnings == []
     assert sites.from_parsed(parsed("google-maps-reviews", {"cid": "9", "reviews": [{}]}), "u")[0][0]["thread_id"] == "9"
 
@@ -172,7 +172,7 @@ def test_tripadvisor_mapper():
     row, rows, profiles, warnings = first("tripadvisor-reviews", data)
     assert row == ("t1", "ann_u", "Ann", "Nice\nstay", "2026-11-14T10:00:00Z", "L1", "thread")
     assert rows[1]["username"] == "A2" and rows[1]["text"] == "x"  # no title: no stray newline
-    assert profiles == [{"username": "ann_u", "display_name": "Ann", "created_at": "", "post_count": 7}]
+    assert profiles == [{"username": "ann_u", "display_name": "Ann", "created_at": "", "post_count": "7"}]
     assert warnings == []
 
 
@@ -182,7 +182,7 @@ def test_yelp_mapper():
     row, rows, profiles, warnings = first("yelp-reviews", data)
     assert row == ("y1", "Y1", "Ann", "tasty", "2026-11-14T10:00:00Z", "B1", "thread")
     assert rows[1]["username"] == "" and rows[1]["text"] == ""
-    assert profiles == [{"username": "Y1", "display_name": "Ann", "created_at": "", "post_count": 3}]
+    assert profiles == [{"username": "Y1", "display_name": "Ann", "created_at": "", "post_count": "3"}]
     assert warnings == []
 
 
@@ -208,7 +208,34 @@ def test_tiktok_mapper_takes_the_video_id_from_the_page_url():
     assert first("tiktok-comments", data, "https://www.tiktok.com/@someone")[0][5] == ""
 
 
-def test_every_mapper_survives_an_empty_item_and_empty_data():
+def test_every_mapper_survives_empty_data():
     for kind in sites.MAPPERS:
         assert sites.from_parsed(parsed(kind, {}), "u")[0] == []
         assert sites.from_parsed({"type": kind, "success": True}, "u")[0] == []
+        assert sites.from_parsed(parsed(kind, ["not", "a", "dict"]), "u")[0] == []
+
+
+def test_malformed_items_and_values_do_not_crash_or_hide_the_good_rows():
+    good_user = {"id": "ok", "text": "fine", "author": {"id": "u1", "username": "u1", "name": "U"}, "user": {"name": "U"}, "reviewer": {"name": "U"}}
+    for kind in ("google-maps-reviews", "tripadvisor-reviews", "yelp-reviews", "g2-reviews", "tiktok-comments",
+                 "app-store-reviews", "google-play-reviews"):
+        key = "comments" if kind == "tiktok-comments" else "reviews"
+        for bad in ({"reviews": "x", "comments": "x"}, {"reviews": {"a": 1}, "comments": {"a": 1}}, {"reviews": None, "comments": None}):
+            assert sites.from_parsed(parsed(kind, bad), "u")[0] == []
+        data = {key: [None, "str", 5, {"id": "b", "author": None, "user": "x", "reviewer": ["x"], "likes": 5, "dislikes": ["a"],
+                                       "problems_solved": {"a": 1}, "text": 7, "title": None, "snippet": 3}, good_user],
+                "product": "x", "location": 5, "business": [], "app_id": None}
+        rows = sites.from_parsed(parsed(kind, data), "u")[0]
+        assert [r["comment_id"] for r in rows] == ["b", "ok"]  # non-dict items skipped, odd values read as empty
+        assert all(isinstance(v, str) for r in rows for v in r.values())
+
+
+def test_g2_numbers_in_text_fields_are_joined_as_text():
+    data = {"reviews": [{"reviewer": {"name": "Ann"}, "likes": 5, "dislikes": "bad"}]}
+    assert sites.from_parsed(parsed("g2-reviews", data), "u")[0][0]["text"] == "5\nbad"
+
+
+def test_google_user_placeholder_leaves_no_profile():
+    data = {"featureId": "f", "reviews": [{"id": "r", "snippet": "text", "user": {"name": "A Google user", "reviews": 3}}]}
+    rows, profiles, _ = sites.from_parsed(parsed("google-maps-reviews", data), "u")
+    assert merge(rows, profiles)[1] == []

@@ -143,3 +143,9 @@ def test_history_without_id_never_registers_an_alias():
     copy = row("", "alice", "hello", "2026-11-14T10:00:10Z", source="history")
     comments, _, _ = merge([thread, root, copy], [])
     assert [c["parent_id"] for c in comments] == ["", ""]
+
+
+def test_profiles_of_placeholder_authors_are_dropped_with_their_comments():
+    profile = lambda u: {"username": u, "display_name": u, "created_at": "", "post_count": "3"}
+    _, profiles, _ = merge([], [profile("A Google user"), profile("Verified User in Software"), profile(""), profile("ann")])
+    assert [p["username"] for p in profiles] == ["ann"]

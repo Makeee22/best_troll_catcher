@@ -119,20 +119,31 @@ def _reddit_user(data, page_url):
     return rows, [{"username": name, "display_name": "", "created_at": user.get("created_at") or "", "post_count": ""}], []
 
 
+def _d(x):
+    return x if isinstance(x, dict) else {}
+
+
+def _s(x):
+    """A text value; anything that is not a string or number (null, list, dict) is empty."""
+    return str(x) if isinstance(x, (str, int, float)) and not isinstance(x, bool) else ""
+
+
 def _review_rows(items, thread_id, fields, count=lambda item: ""):
     """Rows (and profiles with a post count) for a list of reviews; fields(item) -> (username, display_name, text, timestamp)."""
     rows, profiles = [], []
-    for item in items or []:
+    for item in items if isinstance(items, list) else []:
+        if not isinstance(item, dict):
+            continue
         username, display_name, text, timestamp = fields(item)
-        rows.append({"comment_id": item.get("id") or "", "username": username, "display_name": display_name, "text": text,
+        rows.append({"comment_id": _s(item.get("id")), "username": username, "display_name": display_name, "text": text,
                      "timestamp": timestamp, "parent_id": "", "thread_id": thread_id, "source": "thread"})
-        if username and text and count(item) != "":  # no profile for someone whose row the merge drops
+        if username and text and count(item):  # merge drops placeholder authors from the profiles too
             profiles.append({"username": username, "display_name": display_name, "created_at": "", "post_count": count(item)})
     return rows, profiles, []
 
 
 def _join(*parts):
-    return "\n".join(p for p in parts if p)
+    return "\n".join(p for p in map(_s, parts) if p)
 
 
 def _names_only(kind, mapper):
@@ -142,50 +153,50 @@ def _names_only(kind, mapper):
 
 def _google_maps(data, page_url):
     def who(r):
-        u = r.get("user") or {}
-        m = re.search(r"contrib/(\d+)", u.get("link") or "")
-        return m.group(1) if m else u.get("name") or "", u.get("name") or "", r.get("snippet") or "", r.get("isoDate") or ""
-    return _review_rows(data.get("reviews"), data.get("featureId") or data.get("cid") or "", who,
-                        lambda r: (r.get("user") or {}).get("reviews", ""))
+        u = _d(r.get("user"))
+        m = re.search(r"contrib/(\d+)", _s(u.get("link")))
+        return m.group(1) if m else _s(u.get("name")), _s(u.get("name")), _s(r.get("snippet")), _s(r.get("isoDate"))
+    return _review_rows(data.get("reviews"), _s(data.get("featureId")) or _s(data.get("cid")), who,
+                        lambda r: _s(_d(r.get("user")).get("reviews")))
 
 
 def _app_store(data, page_url):
-    author = lambda r: (r.get("author") or "", r.get("author") or "", _join(r.get("title"), r.get("text")), r.get("created_at") or "")
-    return _review_rows(data.get("reviews"), data.get("app_id") or "", author)
+    author = lambda r: (_s(r.get("author")), _s(r.get("author")), _join(r.get("title"), r.get("text")), _s(r.get("created_at")))
+    return _review_rows(data.get("reviews"), _s(data.get("app_id")), author)
 
 
 def _google_play(data, page_url):
-    author = lambda r: (r.get("author") or "", r.get("author") or "", r.get("text") or "", r.get("created_at") or "")
-    return _review_rows(data.get("reviews"), data.get("app_id") or "", author)
+    author = lambda r: (_s(r.get("author")), _s(r.get("author")), _s(r.get("text")), _s(r.get("created_at")))
+    return _review_rows(data.get("reviews"), _s(data.get("app_id")), author)
 
 
 def _tripadvisor(data, page_url):
     def who(r):
-        a = r.get("author") or {}
-        return a.get("username") or a.get("id") or "", a.get("name") or "", _join(r.get("title"), r.get("text")), r.get("published_at") or ""
-    return _review_rows(data.get("reviews"), (data.get("location") or {}).get("id") or "", who,
-                        lambda r: (r.get("author") or {}).get("contribution_count", ""))
+        a = _d(r.get("author"))
+        return _s(a.get("username")) or _s(a.get("id")), _s(a.get("name")), _join(r.get("title"), r.get("text")), _s(r.get("published_at"))
+    return _review_rows(data.get("reviews"), _s(_d(data.get("location")).get("id")), who,
+                        lambda r: _s(_d(r.get("author")).get("contribution_count")))
 
 
 def _yelp(data, page_url):
     def who(r):
-        a = r.get("author") or {}
-        return a.get("id") or "", a.get("name") or "", r.get("text") or "", r.get("updated_at") or ""
-    return _review_rows(data.get("reviews"), (data.get("business") or {}).get("id") or "", who,
-                        lambda r: (r.get("author") or {}).get("review_count", ""))
+        a = _d(r.get("author"))
+        return _s(a.get("id")), _s(a.get("name")), _s(r.get("text")), _s(r.get("updated_at"))
+    return _review_rows(data.get("reviews"), _s(_d(data.get("business")).get("id")), who,
+                        lambda r: _s(_d(r.get("author")).get("review_count")))
 
 
 def _g2(data, page_url):
     def who(r):
-        name = (r.get("reviewer") or {}).get("name") or ""
-        return name, name, _join(r.get("likes"), r.get("dislikes"), r.get("problems_solved")), r.get("published_at") or ""
-    return _review_rows(data.get("reviews"), (data.get("product") or {}).get("slug") or "", who)
+        name = _s(_d(r.get("reviewer")).get("name"))
+        return name, name, _join(r.get("likes"), r.get("dislikes"), r.get("problems_solved")), _s(r.get("published_at"))
+    return _review_rows(data.get("reviews"), _s(_d(data.get("product")).get("slug")), who)
 
 
 def _tiktok(data, page_url):
     def who(c):
-        a = c.get("author") or {}
-        return a.get("username") or "", a.get("nickname") or "", c.get("text") or "", c.get("posted_at") or ""
+        a = _d(c.get("author"))
+        return _s(a.get("username")), _s(a.get("nickname")), _s(c.get("text")), _s(c.get("posted_at"))
     video = re.search(r"/video/(\d+)", page_url or "")
     return _review_rows(data.get("comments"), video.group(1) if video else "", who)
 
@@ -204,4 +215,4 @@ def from_parsed(parsed, page_url):
         return [], [], [f"converter: no mapper for parser {kind}"]
     if not parsed.get("success"):
         return [], [], [f"converter: Context.dev parser {kind} failed: {parsed.get('error_code') or parsed.get('error') or 'unknown'}"]
-    return MAPPERS[kind](parsed.get("data") or {}, page_url)
+    return MAPPERS[kind](_d(parsed.get("data")), page_url)
