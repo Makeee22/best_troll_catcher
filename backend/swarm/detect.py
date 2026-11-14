@@ -112,6 +112,12 @@ def _similar_rate(con):
         from (select key, count(*) as df, bool_or(grouped) as grouped from similar_unit group by key)""")
 
 
+def _logp(c, expected):
+    """SQL for the log of an upper bound on P(X >= c) for X ~ Poisson(expected); 0 when c is not above what is expected."""
+    return (f"(case when {expected} < {c} then {c} * ln({expected}) - {expected} - lgamma({c} + 1) "
+            f"- ln(1 - {expected} / ({c} + 1)) else 0 end)")
+
+
 def _born(con, days):
     """Table `born` (accounts with content and a creation time) and the chance that two of them are within `days`."""
     con.execute("""
@@ -193,17 +199,20 @@ def detect(con, *, min_shared=MIN_SHARED, alpha=ALPHA, min_size=MIN_SIZE, pair_b
         b as (select p.*, b1.created_at is not null and b2.created_at is not null as dated,
                      coalesce(abs(epoch(b1.created_at) - epoch(b2.created_at)) <= ? * 86400, false) as together
               from p left join born b1 on b1.username = p.u1 left join born b2 on b2.username = p.u2),
-        -- a creation time within the window is one more shared item, and its chance is added to what is expected
-        e as (select b.u1, b.u2, b.kind, b.c + b.together::int as c, b.long, b.together,
-                     n1.n * n2.n * s.s + case when b.dated then ? else 0 end as expected
+        e as (select b.u1, b.u2, b.kind, b.c, b.long, b.together, n1.n * n2.n * s.s as expected
               from b join n n1 on n1.username = b.u1 and n1.kind = b.kind
                      join n n2 on n2.username = b.u2 and n2.kind = b.kind
-                     join s on s.kind = b.kind)
-        select u1, u2, kind, c, long, together,
-               case when expected < c
-                    then c * ln(expected) - expected - lgamma(c + 1) - ln(1 - expected / (c + 1))
-                    else 0 end as logp
-        from e""", [max_sharers, long_words or None, created_days, born_rate])
+                     join s on s.kind = b.kind),
+        -- Tested twice when the two were created together: on the content alone, and with the creation as one more item
+        -- whose chance is added to what is expected. The stronger counts, at twice the p-value for trying two; adding a
+        -- common event to a rare one must never weaken it (bots created in bursts make that chance large).
+        t as (select *, __LOGP__(c, expected) as alone,
+                     case when together then __LOGP__(c + 1, expected + ?) + ln(2) end as with_born from e)
+        select u1, u2, kind, case when with_born < alone then c + 1 else c end as c, long,
+               together and with_born < alone as together, least(alone, coalesce(with_born, alone)) as logp
+        from t""".replace("__LOGP__(c + 1, expected + ?)", _logp("(c + 1)", f"(expected + {float(born_rate)!r})"))
+                 .replace("__LOGP__(c, expected)", _logp("c", "expected")),
+                [max_sharers, long_words or None, created_days])
     m = con.execute("select count(*) from pair").fetchall()[0][0]
     cut = None
     if m:

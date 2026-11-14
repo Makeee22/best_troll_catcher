@@ -13,7 +13,12 @@ MODEL = MULTILINGUAL_MODEL
 # Cosine at which two texts count as one. Among 20,000 background texts the multilingual model finds 293 pairs at 0.9,
 # the English one 3,087. A looser cut (0.8) chains the synthetic sample's texts into one group of over 200, so it stays.
 THRESHOLD = 0.9
-MAX_TEXTS = 100_000
+MAX_TEXTS = 1_000_000
+# Up to this many texts every pair is compared; above it random-projection hashing picks the pairs to compare.
+EXACT_TEXTS = 50_000
+# Hashing: TABLES independent tables of BITS random hyperplanes. Two texts at cosine 0.9 share a bucket in one table with
+# probability 0.857**16 = 0.085, so 48 tables find 98.6% of such pairs and nearly all closer ones (99.9% at 0.95).
+TABLES, BITS, SMALL = 48, 16, 32
 # Near-duplicate pairs allowed before the signal is skipped: a templated dataset would otherwise run for minutes.
 MAX_PAIRS = 20_000_000
 # Largest group of texts that counts as one item; a bigger one is generic text chained together, not a copy.
@@ -26,6 +31,53 @@ def _model(name):
     """The loaded model, kept for the life of the process: a server loads it once, not once per analysis."""
     from model2vec import StaticModel
     return StaticModel.from_pretrained(name)
+
+
+class _TooManyPairs(Exception):
+    pass
+
+
+def _all_pairs(vectors, threshold, limit):
+    """Every pair of rows at cosine >= threshold, compared block by block: (rows, cols) index arrays per block."""
+    import numpy as np
+    count = len(vectors)
+    for start in range(0, count, BLOCK):
+        block = vectors[start:start + BLOCK]
+        hit = (block @ vectors[start:].T) >= threshold  # earlier columns were done by earlier blocks
+        # Count before extracting indices, so a templated dataset cannot allocate hundreds of millions of them.
+        # The block's own lower triangle and diagonal (at most BLOCK * (BLOCK + 1) / 2 hits) are not pairs.
+        if int(np.count_nonzero(hit)) - len(block) * (len(block) + 1) // 2 > limit:
+            raise _TooManyPairs
+        rows, cols = np.nonzero(hit)
+        keep = cols > rows  # each pair once, not the diagonal (row r and column c are texts start + r and start + c)
+        yield rows[keep] + start, cols[keep] + start
+
+
+def _hashed_pairs(vectors, threshold, limit, tables=TABLES, bits=BITS, small=SMALL, seed=0):
+    """Pairs at cosine >= threshold among rows that share a bucket in some table; a pair may come more than once."""
+    import numpy as np
+    rng = np.random.default_rng(seed)  # fixed, so a rerun gives the same result
+    count, weights = len(vectors), (1 << np.arange(bits)).astype(np.int64)
+    for _ in range(tables):
+        codes = ((vectors @ rng.standard_normal((vectors.shape[1], bits)).astype(np.float32)) > 0).astype(np.int64) @ weights
+        order = np.argsort(codes, kind="stable")
+        sorted_codes = codes[order]
+        starts = np.flatnonzero(np.r_[True, sorted_codes[1:] != sorted_codes[:-1]])
+        sizes = np.diff(np.r_[starts, count])
+        size_at = np.repeat(sizes, sizes)  # bucket size at each sorted position
+        # small buckets: compare each position with the next few in the same bucket, all buckets at once
+        for d in range(1, min(small, count)):
+            p = np.flatnonzero((size_at[:-d] <= small) & (sorted_codes[:-d] == sorted_codes[d:]))
+            if not len(p):
+                break
+            a, b = order[p], order[p + d]
+            hit = np.einsum("ij,ij->i", vectors[a], vectors[b]) >= threshold
+            yield np.minimum(a, b)[hit], np.maximum(a, b)[hit]
+        # large buckets: every pair inside, block by block
+        for start, size in zip(starts[sizes > small].tolist(), sizes[sizes > small].tolist()):
+            members = order[start:start + size]
+            for rows, cols in _all_pairs(vectors[members], threshold, limit):
+                yield members[rows], members[cols]
 
 
 def add_items(con, model=None, threshold=THRESHOLD, max_texts=MAX_TEXTS, max_pairs=MAX_PAIRS, max_group=MAX_GROUP):
@@ -61,27 +113,24 @@ def add_items(con, model=None, threshold=THRESHOLD, max_texts=MAX_TEXTS, max_pai
         return x
 
     pairs = 0
-    # shortcut: all-against-all comparison, fine to 100,000 distinct texts; use an approximate-neighbour index beyond that
-    for start in range(0, count, BLOCK):
-        block = vectors[start:start + BLOCK]
-        hit = (block @ vectors[start:].T) >= threshold  # columns before `start` were compared in earlier blocks
-        # Count before extracting indices, so a templated dataset cannot allocate hundreds of millions of them.
-        # The block's own lower triangle and diagonal (at most BLOCK * (BLOCK + 1) / 2 hits) are not pairs.
-        if pairs + int(np.count_nonzero(hit)) - len(block) * (len(block) + 1) // 2 > max_pairs:
-            return f"more than {max_pairs:,} near-duplicate text pairs (templated data?)", []
-        rows, cols = np.nonzero(hit)
-        keep = cols > rows  # each pair once, not the diagonal (row r and column c are texts start + r and start + c)
-        rows, cols = rows[keep], cols[keep]
-        pairs += len(rows)
-        if pairs > max_pairs:
-            return f"more than {max_pairs:,} near-duplicate text pairs (templated data?)", []
-        for r, c in zip((rows + start).tolist(), (cols + start).tolist()):
-            parent[find(r)] = find(c)
+    warnings = []
+    try:
+        for rows, cols in (_all_pairs(vectors, threshold, max_pairs) if count <= EXACT_TEXTS
+                           else _hashed_pairs(vectors, threshold, max_pairs)):
+            pairs += len(rows)
+            if pairs > max_pairs:
+                raise _TooManyPairs
+            for r, c in zip(rows.tolist(), cols.tolist()):
+                parent[find(r)] = find(c)
+    except _TooManyPairs:
+        return f"more than {max_pairs:,} near-duplicate text pairs (templated data?)", []
+    if count > EXACT_TEXTS:
+        warnings.append(f"similar_text: {count:,} texts compared by random-projection hashing, which finds about 98.6% "
+                        f"of the pairs at cosine {threshold} and nearly all closer ones")
 
     groups = {}
     for i in range(count):
         groups.setdefault(find(i), []).append(i)
-    warnings = []
     too_big = sum(1 for g in groups.values() if len(g) > max_group)
     if too_big:
         warnings.append(f"similar_text: left out {too_big} groups of more than {max_group} similar texts (generic text chained together)")
