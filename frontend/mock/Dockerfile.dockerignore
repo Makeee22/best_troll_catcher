@@ -1,0 +1,7 @@
+# Only what the mock image needs leaves the repo root.
+*
+!backend/swarm
+!frontend/mock/requirements.txt
+!frontend/mock/app.py
+!frontend/mock/samples
+**/__pycache__
