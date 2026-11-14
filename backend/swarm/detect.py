@@ -1,4 +1,5 @@
 import hashlib
+import math
 
 from . import similar
 from .load import InputError
@@ -22,6 +23,11 @@ MIN_SIZE = 3
 # Most account-pair rows built; above it the most widely shared items are left out.
 PAIR_BUDGET = 1_000_000_000
 KINDS = ("text", "link", "repost", "reply")
+# Group test: pairs at this loose p-value form candidate groups, and a group whose members share far more often than
+# chance links its loose pairs too. A large botnet's pairs each share one item among many own posts and fail the pair
+# test one by one (Test A at 15+ comments per account), but together they are 50-100 times denser than humans' chance
+# shares. Chosen before the first run, not tuned. None turns the test off.
+GROUP_LOOSE = 0.05
 
 # Column each kind reads; a kind is skipped when all of its columns are empty.
 _NEEDS = {"text": ("text",), "link": ("text", "links"), "repost": ("repost_of",), "reply": ("parent_id",)}
@@ -133,6 +139,62 @@ def _born(con, days):
     return accounts, (near / (accounts * (accounts - 1)) if accounts >= 2 else 0.0)
 
 
+def _log_tail(o, e):
+    """log P(Poisson(e) >= o)."""
+    if o <= e:
+        return 0.0
+    if e <= 0:
+        return -math.inf
+    term = total = -e + o * math.log(e) - math.lgamma(o + 1)
+    j = o
+    while True:  # terms fall after the first, since o > e
+        j += 1
+        term += math.log(e) - math.log(j)
+        if term < total - 40:
+            return total
+        total = max(total, term) + math.log1p(math.exp(-abs(total - term)))
+
+
+def _group_test(con, loose, alpha, min_size, min_shared):
+    """Accept candidate groups that share far more pairs than chance; add their loose pairs to `link`.
+
+    Evidence is counted in items, not pairs (one viral post shared by m accounts is one item, not m(m - 1)/2 pairs):
+    O = sum over items shared inside the group of (sharers - 1). Linking k accounts at all takes O >= k - 1, so only the
+    excess counts. By chance the group's posts would match about sum over kinds of s * ((sum n)^2 - sum n^2) / 2 times,
+    an upper bound of O's expectation, so the test is conservative. Accepted when P(Poisson >= O - (k - 1)) <= alpha /
+    groups tested. Added links obey the pair test's evidence rule (min_shared items, or one long text).
+    """
+    groups = _clusters(con.execute("select u1, u2 from pair group by u1, u2 having min(logp) <= ln(?)", [loose]).fetchall(),
+                       min_size)
+    out = {"status": "used", "reason": None, "loose_p": loose, "items": len(groups), "groups": len(groups), "accepted": 0, "links": 0}
+    if not groups:
+        return out
+    con.execute("create or replace temp table cand as select unnest(?::VARCHAR[]) as username, unnest(?::BIGINT[]) as g",
+                [[u for g in groups for u in g], [i for i, g in enumerate(groups) for _ in g]])
+    observed = dict(con.execute("""
+        select g, sum(m - 1) from (select c.g, i.kind, i.key, count(distinct i.username) as m
+                                   from item i join cand c using (username) group by all having m >= 2)
+        group by g""").fetchall())
+    expected = dict(con.execute("""
+        select g, sum(coalesce(s.s, 0) * (t * t - t2) / 2) from (
+            select c.g, n.kind, sum(n.n)::double as t, sum(n.n::double * n.n) as t2 from cand c join n using (username) group by all)
+        join s using (kind) group by g""").fetchall())
+    cut = math.log(alpha / len(groups))
+    accepted = [i for i, g in enumerate(groups) if _log_tail(observed.get(i, 0) - (len(g) - 1), expected.get(i) or 0) <= cut]
+    out["accepted"] = len(accepted)
+    if accepted:
+        before = con.execute("select count(*) from link").fetchall()[0][0]
+        con.execute("create or replace temp table accepted as select unnest(?::BIGINT[]) as g", [accepted])
+        con.execute("""
+            insert into link
+            select p.u1, p.u2, p.kind, p.c, p.together from pair p
+            join cand a on a.username = p.u1 join cand b on b.username = p.u2 and b.g = a.g join accepted ac on ac.g = a.g
+            where p.logp <= ln(?) and (p.c >= ? or p.long >= 1)
+              and not exists (select 1 from link l where l.u1 = p.u1 and l.u2 = p.u2 and l.kind = p.kind)""", [loose, min_shared])
+        out["links"] = con.execute("select count(*) from link").fetchall()[0][0] - before
+    return out
+
+
 def _clusters(links, min_size):
     parent = {}
 
@@ -152,7 +214,7 @@ def _clusters(links, min_size):
 
 
 def detect(con, *, min_shared=MIN_SHARED, alpha=ALPHA, min_size=MIN_SIZE, pair_budget=PAIR_BUDGET, similar_text=False,
-           long_words=LONG_WORDS, similar_model=None, created_days=CREATED_DAYS):
+           long_words=LONG_WORDS, similar_model=None, created_days=CREATED_DAYS, group_loose=GROUP_LOOSE):
     warnings = []
     skipped = _skipped(con)
     fill = lambda sql: sql.replace("__WORDS__", _WORDS).replace("__LINK_KEY__", _LINK_KEY).replace("__MIN_WORDS__", str(int(MIN_WORDS)))
@@ -227,6 +289,9 @@ def detect(con, *, min_shared=MIN_SHARED, alpha=ALPHA, min_size=MIN_SIZE, pair_b
         con.execute("insert into link select u1, u2, kind, c, together from pair where (c >= ? or long >= 1) and logp <= ?",
                     [min_shared, cut])
 
+    group = (_group_test(con, group_loose, alpha, min_size, min_shared) if group_loose and m else
+             {"status": "skipped", "reason": "off" if not group_loose else "no account pairs", "items": 0, "groups": 0,
+              "accepted": 0, "links": 0})
     groups = _clusters(con.execute("select u1, u2 from link").fetchall(), min_size)
     con.execute("create or replace table member (username VARCHAR, cluster VARCHAR, copied_share DOUBLE)")
     con.execute("create or replace table cluster (cluster VARCHAR, size BIGINT, confidence DOUBLE)")
@@ -259,6 +324,7 @@ def detect(con, *, min_shared=MIN_SHARED, alpha=ALPHA, min_size=MIN_SIZE, pair_b
             "status": "used", "reason": None,
             "items": con.execute("select count(*) from item where kind = ?", [kind]).fetchall()[0][0],
             "links": con.execute("select count(*) from link where kind = ?", [kind]).fetchall()[0][0]}
+    signals["group_test"] = group
     if not created_days or born_accounts < 2:
         signals["created_together"] = {"status": "skipped", "items": born_accounts, "links": 0,
                                        "reason": "off" if not created_days else "fewer than 2 accounts with created_at in the profiles"}

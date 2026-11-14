@@ -3,6 +3,7 @@ import json
 import sys
 
 from .core import MEMBER_RATIO, MIN_CONFIDENCE, analyze
+from .detect import GROUP_LOOSE
 from .load import InputError
 from .similar import ENGLISH_MODEL, MODEL as SIMILAR_MODEL
 
@@ -17,6 +18,8 @@ def main(argv=None):
                         help=f"lowest confidence reported (default {MIN_CONFIDENCE})")
     parser.add_argument("--member-ratio", type=float, default=MEMBER_RATIO,
                         help=f"a member is flagged when its copied share is at least this fraction of its cluster's confidence (default {MEMBER_RATIO}; 0 flags every member)")
+    parser.add_argument("--no-group-test", action="store_true",
+                        help="only the pair test: do not link groups whose members share far more often than chance")
     parser.add_argument("--similar-text", action="store_true",
                         help="also link accounts that post reworded copies (needs pip install model2vec)")
     parser.add_argument("--similar-model", metavar="NAME", default=SIMILAR_MODEL,
@@ -27,7 +30,7 @@ def main(argv=None):
     try:
         result = analyze(args.comments, args.profiles, min_confidence=args.min_confidence,
                          similar_text=args.similar_text, ignore_path=args.ignore, similar_model=args.similar_model,
-                         member_ratio=args.member_ratio)
+                         member_ratio=args.member_ratio, group_loose=None if args.no_group_test else GROUP_LOOSE)
     except InputError as e:
         print(f"error: {e}", file=sys.stderr)
         return 2
