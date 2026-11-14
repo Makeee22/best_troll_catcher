@@ -1,5 +1,8 @@
 import json
+
+import pytest
 from swarm.core import analyze
+from swarm.load import InputError
 from swarm.synthetic import write
 
 
@@ -20,6 +23,31 @@ def test_result_document(tmp_path):
     assert len(swarm["top_items"]) == 6 and swarm["top_items"][0]["accounts"] == 8
     assert swarm["top_items"][0]["kind"] == "text" and swarm["top_items"][0]["first_seen"].endswith("Z")
     assert swarm["created_within_30_days"] == {"accounts": 8, "of": 8}
+
+
+def test_ignore_list_leaves_accounts_out(tmp_path):
+    paths = write(str(tmp_path))
+    ignore = tmp_path / "ignore.txt"
+    ignore.write_text("# known feeds\n\n  newsfeed_0 \nnewsfeed_1\nnewsfeed_2\nno_such_user\n", encoding="utf-8")
+    before = analyze(*paths)
+    result = analyze(*paths, ignore_path=str(ignore))
+    accounts = lambda r: sorted(sorted(a["username"] for a in c["accounts"]) for c in r["clusters"])
+    assert accounts(result) == [a for a in accounts(before) if not a[0].startswith("newsfeed_")]
+    assert not any(a["username"].startswith("newsfeed_") for c in result["clusters"] for a in c["accounts"])
+    assert result["parameters"]["ignored_accounts"] == 3 and "ignored_accounts" not in before["parameters"]
+    assert result["source"]["accounts"] == before["source"]["accounts"] - 3
+    assert any(w.startswith("ignore list: left out 3 accounts (") and w.endswith(" comments)") for w in result["warnings"])
+    assert "ignore list: 1 names match no account" in result["warnings"]
+
+
+def test_ignore_list_that_removes_everything_is_an_input_error(tmp_path, make_csv):
+    comments = make_csv(tmp_path, "c.csv", [{"username": "a", "text": "one two three four five six"}])
+    ignore = tmp_path / "ignore.txt"
+    ignore.write_text("a\n", encoding="utf-8")
+    with pytest.raises(InputError, match="leaves no comments"):
+        analyze(comments, ignore_path=str(ignore))
+    with pytest.raises(InputError, match="cannot read the ignore list"):
+        analyze(comments, ignore_path=str(tmp_path / "nope.txt"))
 
 
 def test_without_profiles(tmp_path):

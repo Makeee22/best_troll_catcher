@@ -16,10 +16,12 @@ def main(argv=None):
                         help=f"lowest confidence reported (default {MIN_CONFIDENCE})")
     parser.add_argument("--similar-text", action="store_true",
                         help="also link accounts that post reworded copies (needs pip install model2vec)")
+    parser.add_argument("--ignore", metavar="FILE",
+                        help="file of usernames to leave out, one per line (known feeds, staff accounts)")
     args = parser.parse_args(argv)
     try:
         result = analyze(args.comments, args.profiles, min_confidence=args.min_confidence,
-                         similar_text=args.similar_text)
+                         similar_text=args.similar_text, ignore_path=args.ignore)
     except InputError as e:
         print(f"error: {e}", file=sys.stderr)
         return 2

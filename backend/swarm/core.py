@@ -3,7 +3,7 @@ from datetime import timedelta
 
 from . import detect as d
 from .evaluate import evaluate
-from .load import close, connect, load
+from .load import InputError, close, connect, load
 
 MIN_CONFIDENCE = 0.2
 # Caps so one huge cluster cannot make the result file unusable; edge_count stays the true number.
@@ -84,11 +84,34 @@ def _edges(con):
         order by cluster, rn""").fetchall()
 
 
+def _ignore(con, path):
+    """Delete the accounts named in the file (one per line, `#` comments) from the tables. Returns the warnings and the count."""
+    try:
+        with open(path, encoding="utf-8-sig") as f:
+            lines = [line.strip() for line in f]
+    except (OSError, UnicodeDecodeError):
+        raise InputError(f"cannot read the ignore list {path}") from None
+    names = sorted({line for line in lines if line and not line.startswith("#")})
+    listed = "list_contains(?::VARCHAR[], username)"
+    accounts, rows = con.execute(f"select count(distinct username), count(*) from comments where {listed}", [names]).fetchall()[0]
+    for table in ("comments", "profiles"):
+        con.execute(f"delete from {table} where {listed}", [names])
+    if not con.execute("select count(*) from comments").fetchall()[0][0]:
+        raise InputError("the ignore list leaves no comments to analyse")
+    warnings = [f"ignore list: left out {accounts} accounts ({rows} comments)"]
+    if len(names) > accounts:
+        warnings.append(f"ignore list: {len(names) - accounts} names match no account")
+    return warnings, accounts
+
+
 def analyze(comments_path, profiles_path=None, *, min_confidence=MIN_CONFIDENCE, min_shared=d.MIN_SHARED,
-            alpha=d.ALPHA, min_size=d.MIN_SIZE, pair_budget=d.PAIR_BUDGET, similar_text=False):
+            alpha=d.ALPHA, min_size=d.MIN_SIZE, pair_budget=d.PAIR_BUDGET, similar_text=False, ignore_path=None):
     con = connect()
     try:
         warnings = load(con, comments_path, profiles_path)
+        if ignore_path is not None:
+            ignore_warnings, ignored = _ignore(con, ignore_path)
+            warnings += ignore_warnings
         signals, detect_warnings = d.detect(con, min_shared=min_shared, alpha=alpha, min_size=min_size,
                                             pair_budget=pair_budget, similar_text=similar_text)
         comments, accounts, synthetic = con.execute(
@@ -98,7 +121,8 @@ def analyze(comments_path, profiles_path=None, *, min_confidence=MIN_CONFIDENCE,
                        "profiles_file": os.path.basename(profiles_path) if profiles_path else None,
                        "comments": comments, "accounts": accounts, "synthetic": bool(synthetic)},
             "parameters": {"min_words": d.MIN_WORDS, "min_shared": min_shared, "alpha": alpha, "min_size": min_size,
-                           "min_confidence": min_confidence, **({"similar_text": True} if similar_text else {})},
+                           "min_confidence": min_confidence, **({"similar_text": True} if similar_text else {}),
+                           **({"ignored_accounts": ignored} if ignore_path is not None else {})},
             "signals": signals,
             "warnings": warnings + detect_warnings,
             "clusters": _clusters(con, min_confidence),

@@ -23,6 +23,12 @@ def test_warnings_go_to_standard_error(tmp_path, make_csv):
     assert done.returncode == 0 and "warning: " in done.stderr and "timestamp" in done.stderr
 
 
+def test_missing_ignore_list_is_an_error(tmp_path):
+    comments, _ = write(str(tmp_path))
+    done = cli(comments, "--ignore", str(tmp_path / "nope.txt"))
+    assert done.returncode == 2 and done.stderr.startswith("error: cannot read the ignore list")
+
+
 def test_bad_input_is_one_line_and_exit_code_2(tmp_path, make_csv):
     done = cli(make_csv(tmp_path, "c.csv", [{"text": "no username column here at all"}]))
     assert done.returncode == 2 and done.stderr.startswith("error: ") and "username" in done.stderr
