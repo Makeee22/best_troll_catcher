@@ -221,7 +221,7 @@ What a benign feed usually does and a swarm avoids is **say what it is**. `decla
 
 Catches copies that were reworded. A static embedding model (model2vec, runs on a CPU) turns each distinct text into a vector. Texts whose vectors are nearly parallel (cosine at least 0.9) become one item of a fifth signal, `similar_text`, and go through the same steps 3–8.
 
-- Off by default. Needs `pip install model2vec` and a one-time model download.
+- Off by default. Needs `model2vec` (in `requirements.txt`) and a one-time model download (`python -m swarm.similar download`).
 - **Model:** `minishlab/potion-multilingual-128M` by default (512 MB download, about 1.9 GB of memory, 4 s to load). `--similar-model minishlab/potion-base-8M` is the English-only model used before (30 MB, 150 MB of memory). Measured 14.11 (PLAN.md Results):
   - on English data the multilingual model finds the same planted swarms, at equal or higher confidence, with 0 background accounts flagged;
   - among 20,000 distinct background texts it puts 293 pairs above the cut, the English model 3,087, so far fewer unrelated texts are joined;
