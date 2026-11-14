@@ -8,24 +8,44 @@ URL ──► [1. COLLECT: Arde1001] ──►  raw bundle  ──►  [2. CONVE
          and its commenters have                       into the standard format
 ```
 
-## 1. Collect (backend, `backend/swarm/collect`, being built 14.11 evening)
+## 1. Collect (backend, `backend/swarm/collect`, built 14.11 evening)
 
-Written first by the front-end owner in `frontend/api/` (`contextdev.py` for Reddit histories, `bluesky.py` for Bluesky threads, both live on the site). These move to `backend/swarm/collect` and grow there (Hacker News, Context.dev's review parsers next); the front-end files stay until the site switches to the backend's collector, so nothing breaks meanwhile. The collector needs network access and, for Context.dev, the `CONTEXT_DEV_API_KEY`; the core (`analyze()`) never imports it and stays offline.
+Written first by the front-end owner in `frontend/api/` (`contextdev.py` for Reddit histories, `bluesky.py` for Bluesky threads, both live on the site). Ported to `backend/swarm/collect`, which now returns the raw bundle below instead of rows (the converter does all parsing). The front-end files stay until the site switches to the backend's collector, so nothing breaks meanwhile. The collector needs network access; the core (`analyze()`) never imports it and stays offline (a test checks it).
 
-Given a URL, fetch as much of the page's discussion as can be had for free and without logging in:
+Given a URL, it fetches as much of the page's discussion as can be had for free and without logging in: the thread, each commenter's recent public history where the site has one, and an honest note of what could **not** be fetched (`coverage.notes`, which reach the result's `warnings`). Never a way around a login wall or a site's terms.
 
-- the page itself, rendered (JavaScript included), with embedded comment widgets (iframes) when present
-- further comment pages (pagination, "more comments" endpoints) when the site offers them without a click
-- each commenter's recent public history, when the site has public profile pages (Reddit: done, `frontend/api/contextdev.py`)
-- an honest note of what could **not** be fetched (for example "25 of 196 comments: the rest are behind a 'load more' button")
+```python
+from swarm.collect import collect, run, CollectError
 
-Tools: Context.dev (`web-scrape` with JavaScript rendering, `includeFrames`, prebuilt parsers; `web-map` and `web-crawl` for linked pages), and a site's own public, login-free endpoints where it has them. Never a way around a login wall or a site's terms.
+bundle = collect(url, history=25, max_participants=150, on_progress=None, client=None)   # the raw bundle
+result, bundle = run(url, similar_text=True, history=25)    # collect -> swarm.convert -> swarm.core.analyze
+```
+
+- `on_progress(done, total)` is called after each history. `client` defaults to `ContextDev.from_env()` (key `CONTEXT_DEV_API_KEY`, never logged or put in a bundle). Hacker News and Bluesky work **without a key**: Hacker News always asks Algolia directly, Bluesky tries Context.dev first when there is a key and falls back to the public API (as `bluesky.py` did), or goes straight to it without one.
+- Besides `url`, `site`, `collected_at`, `pages`, `coverage` and `credits_used` (and `credits_remaining` when Context.dev reported it), the bundle has a `thread` summary: `platform`, `label`, `title`, `post_id`, `commenters`, `commenters_fetched`, `history_per_commenter`, `histories_ok`, `histories_failed` (and site extras such as `via`, the number of requests per route). The converter ignores it; the front end can show it.
+- `run` writes the two CSV files to a temporary directory, so a result's `source.comments_file` is a label such as `Bluesky thread at://did:plc:…/app.bsky.feed.post/…` or `Hacker News story 38519012`, and `warnings` start with the coverage and converter notes. `profiles.csv` is absent when the site gave no profile data.
+- Errors are `CollectError` (a `ValueError`) with a message for the user: unsupported site, post not found or not public, no key for a site that needs one, credits ran out. The command line prints it as one `error: …` line with exit code 2.
+- Retry, timeout, 2 concurrent requests (`CONTEXT_DEV_WORKERS`) and the credit accounting are those of `frontend/api/contextdev.py`.
+
+```bash
+python -m swarm.collect URL OUT_DIR [--history N] [--max-participants N] [--no-similar-text]
+# writes bundle.json, comments.csv, profiles.csv (when there are profiles) and result.json; prints the core's summary
+```
+
+| Site (link) | Thread | Histories | Key |
+|---|---|---|---|
+| Bluesky post `bsky.app/profile/NAME/post/ID` | `getPostThread` (depth 1000) as a `json` page | per participant `getAuthorFeed` (`posts_with_replies`, limit = history) and `getProfiles` (25 per call), `json` pages | no |
+| Hacker News `news.ycombinator.com/item?id=N` | Algolia `items/N` as a `json` page | Algolia `search_by_date?tags=comment,author_NAME&hitsPerPage=history`, `json` pages | no |
+| Reddit thread `reddit.com/r/…/comments/ID` | rendered page (`html`, retried once with a longer wait if it holds no comment) | `reddit-user` parser, `parsed` unchanged | yes |
+| Google Maps place, App Store, Google Play, Tripadvisor, Yelp, G2, TikTok video | the matching Context.dev parser, `parsed` unchanged (Google Maps with `limit` 200; the others return one page) | none | yes |
+
+Anything else raises `CollectError("This site is not supported yet: …")`. Hacker News history uses `search_by_date` (newest first); plain `search` ranks by relevance and missed the newest comment for 2 of 6 authors in a check on 14.11.
 
 ## 2. Convert (backend, `backend/`)
 
 Given a raw bundle, produce `comments.csv` and, when there is profile data, `profiles.csv` in the standard format (`docs/api.md`, "Input files"). One converter per site kind, plus a generic fallback. The core stays unchanged.
 
-Done 14.11 evening: the site's Reddit jobs already call the backend's converter (`1899188`); `frontend/api/reddit_html.py` is used only for the thread's title. Bluesky rows on the site still come from `frontend/api/bluesky.py` until the collector moves.
+Done 14.11 evening: the site's Reddit jobs already call the backend's converter (`1899188`); `frontend/api/reddit_html.py` is used only for the thread's title. Bluesky rows on the site still come from `frontend/api/bluesky.py` until the front end switches to `swarm.collect`.
 
 ### How to call the converter (for the front end)
 
@@ -153,7 +173,7 @@ The converter can rely on: UTF-8 strings; times in ISO 8601 UTC; usernames as th
 | Reddit | Only from a page saved in the browser: whatever the browser had loaded (188 comments on the saved test page; the rest behind "load more"). Context.dev's `reddit-post` parser returns an empty comment list (reported to Context.dev). | Yes: `reddit-user` parser, 25 newest comments, about 1 credit and 0.4 s each | Live on the site as "Analyse a Reddit thread" |
 | X / Twitter | 3 replies, then a login wall | 5–6 posts, then a login wall | Not usable without logging in |
 | **Bluesky** | **Yes, complete:** the public API `app.bsky.feed.getPostThread` (no login, depth 1000) gives every public reply, nested ones included. Replies that are deleted, hidden or blocked are missing; the sum of Bluesky's own `replyCount` over the posts we read says how many there should be. | **Yes:** public `app.bsky.feed.getAuthorFeed` (newest 30 posts, replies and reposts per participant, one request each); `app.bsky.actor.getProfiles` for creation date, bio and counts, 25 accounts per call | **Done: `frontend/api/bluesky.py`, on the site as "Analyse a discussion from a link"** (`POST /api/jobs/url`). Every request goes through Context.dev (`web-scrape` with `formats.bytes`, the untouched response body; about 1 credit each) with a direct request to the same public endpoint as fallback when Context.dev does not answer in 10 s. Measured 14.11 with 2 requests at a time: 43 replies from 38 participants in 17–100 s for 42 credits; 158 replies from 143 participants in 333 s for 147 credits (Context.dev took 1.5–5 s per request then); the core ran all four signals on 4,209 rows in 1.4 s. |
-| **Hacker News** | **Yes, complete:** the public Algolia API `hn.algolia.com/api/v1/items/{id}` returned all 1,124 comments from 717 commenters of one story, with `parent_id` and times | Yes: Algolia search by author (`tags=comment,author_NAME`) | Collector next, after Bluesky |
+| **Hacker News** | **Yes, complete:** the public Algolia API `hn.algolia.com/api/v1/items/{id}` returned all 1,124 comments from 717 commenters of one story, with `parent_id` and times | Yes: Algolia search by author (`tags=comment,author_NAME`) | Done 14.11 evening: `swarm.collect` (no key needed) |
 | Others | Not tested yet | | |
 
 ### Bluesky: how the collector maps to the raw bundle
