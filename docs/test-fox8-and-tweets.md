@@ -113,3 +113,45 @@ The background's own 118 flagged accounts stay the same in every scenario: a pla
 2. **Two people audit** the 16 tweet-set clusters at confidence 0.6 or more (counts only, never accounts).
 3. **Backend (Arde1001):** decide on Q5 (per-signal confidence) with Fox8 dev as evidence, then rerun Fox8 held-out once, the Cresci subset and Test A; and a size limit for server jobs (Q8).
 4. Rerun the whole tweet set on a machine with 16 GB or more, or in chunks, after the join is fixed (`seq -w 2 11`).
+
+## Test F2: `arde/group-test`
+
+Run 15.11.2026 00:00–00:35 by J0l3s on the same data and halves as above. Branch `arde/group-test` at **`8600aa2`**, which builds on `arde/link-kinds` (`5e5fef7`) and adds: confidence as each kind's copied share **weighted by the cluster's links of that kind**; a **rate cap** (an item counts toward the chance rate as if at most 10 accounts shared it); and a **group test** (`signals.group_test`, off with `--no-group-test`). Rules only, cut 0.2, tests pass (218). Aggregate numbers only. The Fox8 held-out half was run once, after the dev half looked right.
+
+### The three versions on the same runs
+
+| Run | `main` (`284adf9`, Test F) | `arde/link-kinds` (`5e5fef7`) | `arde/group-test` (`8600aa2`) |
+|---|---|---|---|
+| Fox8 dev: cluster confidence | 0.239 | 0.239 | **0.565** (0.565 with `--no-group-test`) |
+| Fox8 dev: flagged members / recall at 0.2 | 574 of 575 / 0.997 | 574 of 575 / 0.997 | 575 of 575 / 0.998 |
+| Fox8 dev: recall at 0.3 and 0.5 | **0** | **0** | **0.998** |
+| Fox8 dev: FPR at 0 / 0.05 / 0.1 / 0.2+ | 0.025 / 0 / 0 / 0 | 0.011 / 0.007 / 0.007 / 0 | **0.104** / 0.077 / 0 / 0 |
+| Fox8 **held-out**: confidence; recall at 0.2–0.5 | 0.240; 0.993 at 0.2, 0 at 0.3+ | not run | **0.561; 0.997 at every cut** |
+| Fox8 held-out: FPR at 0 / 0.05 / 0.1 / 0.2+ | 0.012 / 0.003 / 0 / 0 | not run | **0.127 / 0.088 / 0.052** / 0 |
+| Tweets part 001: clusters; flagged per 1,000 | 20; 1.36 | 35; 1.91 | 38; **2.00** |
+| Tweets part 001: bands 0.2–0.4 / 0.4–0.6 / 0.6–0.8 / 0.8–1.0 | 14 / 4 / 0 / 2 | 26 / 6 / 1 / 2 | 29 / 6 / 1 / 2 |
+| Tweets part 001: seconds / peak memory | 31 s / 1.2 GB | 70 s / 2.1 GB | 42 s / 2.5 GB (`SWARM_MEMORY_LIMIT=4GB`) |
+| Planted swarms on part 001: found | as in Test F | identical | **identical** (every scenario, same confidence) |
+| Planted swarms: real accounts flagged underneath | 118 | 166 | 174 |
+| Tweets 4.1M: clusters; flagged per 1,000 | 118; 1.91 | 169; 2.71 | 176; **2.83** |
+| Tweets 4.1M: bands | 76 / 26 / 12 / 4 | 102 / 41 / 15 / 11 | 108 / 42 / 15 / 11 |
+| Tweets 4.1M: seconds / peak memory | 1,032 s / 7.0 GB (swapping) | 264 s / 4.5 GB (4 GB cap) | **443 s / 9.9 GB** (4 GB cap) |
+
+Flagged per 1,000 on the tweet set is **not a false-positive rate**: none of these clusters has been audited.
+
+### Group test
+
+| Run | Groups tested | Accepted | Links added |
+|---|---|---|---|
+| Fox8 dev | 7 | 1 | 261 |
+| Fox8 held-out | 16 | 1 | 26 |
+| Tweets part 001 | 412 | 79 | 0 |
+| Tweets 4.1M | 699 | 181 | 0 |
+
+### What it shows
+
+- **The Fox8 fix works.** The botnet's confidence goes from 0.24 to 0.56–0.57 on both halves, so recall no longer collapses at 0.3 or 0.5. On the held-out half recall is 0.997 at every cut, with no human flagged at 0.2 or above.
+- **The confidence change does all of it; the group test adds nothing measurable here.** With and without `--no-group-test` the Fox8 dev results are identical. Its 261 links (dev) and 26 (held-out) join pairs that were already in the cluster. On the tweet set it accepts groups but adds no links. The rate cap roughly doubles the repost and reply links on Fox8 (dev repost links 75,039 to 136,692) without changing who is flagged at 0.2.
+- **More humans below the cut.** Humans who form their own small clusters now score higher. On Fox8 the FPR at cuts 0–0.1 rose from about 0.01–0.03 to 0.05–0.13 (held-out at 0.1: 30 of 583 humans; main had 0). At the cut the product uses (0.2) it is still 0 on both halves. Lowering the cut under 0.2 would now cost much more than before.
+- **The tweet set flags a little more.** Per 1,000 accounts: part 001 1.36 → 1.91 → 2.00; the 4.1M sample 1.91 → 2.71 → 2.83 (+48% against `main`, +4% against `link-kinds`). Almost all the rise came with `link-kinds`. Under team decision B15 (find more, accept some false positives) that is within the agreed direction, but it is unaudited: how many of the extra clusters are real is not known.
+- **The memory cap is not holding on this branch.** The 4.1M sample peaked at **9.9 GB** of process memory with `SWARM_MEMORY_LIMIT=4GB`, against 4.5 GB on `link-kinds`, and took 443 s against 264 s. The cap only bounds DuckDB, so the extra memory is probably used outside it (the group test or the weighted share). The planted-swarm run also took longer (1,318 s against 717 s). On the 8 GB server this size of input would swap again; **for the backend owner to check before merging.**
