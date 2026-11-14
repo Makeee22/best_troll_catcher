@@ -105,3 +105,19 @@ def test_unclosed_tag_in_a_comment_does_not_swallow_the_next_comment():
 def test_truncated_page_keeps_the_last_comment_text():
     html = '<shreddit-comment thingid="t1_a" author="alice" postid="t3_p"><div id="t1_a-comment-rtjson-content"><p>cut off'
     assert by_id(sites.from_html(html, "u")[0])["a"]["text"] == "cut off"
+
+
+def test_markup_after_an_unclosed_tag_does_not_leak_into_the_text():
+    html = ('<shreddit-comment thingid="t1_a" author="alice" postid="t3_p">'
+            '<div id="t1_a-comment-rtjson-content"><p>one<p>two</div><button>Reply</button><button>Share</button></shreddit-comment>'
+            '<shreddit-comment thingid="t1_b" author="bob" postid="t3_p">'
+            '<div id="t1_b-comment-rtjson-content"><p>next</p></div></shreddit-comment>')
+    got = by_id(sites.from_html(html, "u")[0])
+    assert got["a"]["text"] == "one\ntwo" and got["b"]["text"] == "next"
+
+
+def test_footer_and_script_after_the_last_comment_do_not_leak_into_the_text():
+    html = ('<body><shreddit-comment thingid="t1_a" author="alice" postid="t3_p">'
+            '<div id="t1_a-comment-rtjson-content"><p>last<p>x</div></shreddit-comment>'
+            '<footer>Terms Privacy Help</footer><script>var x=1;</script></body>')
+    assert by_id(sites.from_html(html, "u")[0])["a"]["text"] == "last\nx"

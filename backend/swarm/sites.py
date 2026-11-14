@@ -27,8 +27,7 @@ class _RedditParser(HTMLParser):
         self.post = None
         self.comments = {}      # thingid -> row, in document order
         self.text_for = None    # thingid whose text is being read
-        self.depth = 0          # open tags inside that text element
-        self.quote = 0          # open <blockquote>s inside it: the quoted parent is not this author's text
+        self.open = []          # open tags inside that text element, outermost first
         self.parts = []
 
     def handle_starttag(self, tag, attrs):
@@ -40,8 +39,7 @@ class _RedditParser(HTMLParser):
                 if tag == "br":
                     self.parts.append("\n")
                 return
-            self.depth += 1
-            self.quote += tag == "blockquote"
+            self.open.append(tag)
             if tag in ("p", "li"):
                 self.parts.append("\n")
             return
@@ -59,16 +57,15 @@ class _RedditParser(HTMLParser):
         elif (a.get("id") or "").endswith(("-comment-rtjson-content", "-post-rtjson-content")):
             thing = a["id"].rsplit("-", 3)[0]
             if thing in self.comments or (self.post and thing == self.post["thing"]):
-                self.text_for, self.depth, self.quote, self.parts = thing, 1, 0, []
+                self.text_for, self.open, self.parts = thing, [tag], []
 
     def handle_endtag(self, tag):
         if self.text_for is None or tag in VOID_TAGS:
             return
-        self.depth -= 1
-        if tag == "blockquote" and self.quote:
-            self.quote -= 1
-        if self.depth <= 0:
-            self._finish()
+        if tag in self.open:  # an end tag with no open match is ignored; unclosed tags inside it are closed with it
+            del self.open[len(self.open) - 1 - self.open[::-1].index(tag):]
+            if not self.open:
+                self._finish()
 
     def _finish(self):
         text = re.sub(r"[ \t]+", " ", "".join(self.parts))
@@ -85,7 +82,7 @@ class _RedditParser(HTMLParser):
             self._finish()
 
     def handle_data(self, data):
-        if self.text_for is not None and not self.quote:
+        if self.text_for is not None and "blockquote" not in self.open:
             self.parts.append(data)
 
 
