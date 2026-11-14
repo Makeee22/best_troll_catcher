@@ -9,4 +9,5 @@
 !frontend/api/bluesky.py
 !frontend/api/jobs.py
 !frontend/api/explain.py
+!frontend/api/newscheck.py
 **/__pycache__

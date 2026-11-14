@@ -9,7 +9,9 @@ leaves the server. Only the cluster's own evidence is sent, never whole historie
 
     explanation = explain(cluster, source)      # dict, or raises ExplainError
 
-Needs GEMINI_API_KEY in the environment (server .env). Model: GEMINI_MODEL, default gemini-flash-latest.
+Provider: Hostinger AI Router (OpenAI-compatible, HOSTINGER_ROUTER_API_KEY; model ROUTER_MODEL, default
+gemini-3.5-flash-eu, run in the EU) first; Google's Gemini API (GEMINI_API_KEY, GEMINI_MODEL) as fallback.
+Keys live only in the server's .env.
 """
 import json
 import os
@@ -19,8 +21,13 @@ import time
 import urllib.error
 import urllib.request
 
+import newscheck
+
 MODEL = os.environ.get("GEMINI_MODEL", "gemini-flash-latest")   # gemini-2.5-flash is closed to new keys (404)
 API = "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
+ROUTER = os.environ.get("HOSTINGER_ROUTER_BASE_URL", "https://router.hostinger.com/v1").rstrip("/")
+ROUTER_MODEL = os.environ.get("ROUTER_MODEL", "gemini-3.5-flash-eu")
+UA = "spot-the-swarm/1.0 (Junction 2026 hackathon)"   # Cloudflare in front of the router refuses Python's default (error 1010)
 MAX_ITEMS = 12          # shared items sent as evidence
 MAX_TEXT = 400          # characters per item
 PER_HOUR = 60           # explanations per hour for the whole site (cost guard)
@@ -59,6 +66,8 @@ Rules:
 - Use ONLY the evidence given. Cite evidence ids (E1, F1, ...) for every observation. Do not invent facts, dates, names, motives or links.
 - Describe what the group APPEARS to be doing, for example amplifying one link, repeating one message or narrative,
   farming karma by copying old comments, promoting a product, or running an automated feed.
+- If a news check is given (N1, N2, ...), use it for the breaking-news explanation: say whether the hits are really about the
+  same thing as the shared items and cite them; search hits that are about something else are not evidence.
 - Always weigh innocent explanations: an automated news or weather feed, a real campaign or fan group, people who
   answer each other in one community, everyone sharing one piece of breaking news, a common short phrase.
   Rate each one low / medium / high with a reason taken from the evidence.
@@ -151,6 +160,59 @@ def _call_gemini(evidence):
         raise ExplainError(f"The language model gave no usable answer ({reason or 'unknown reason'}).") from None
 
 
+def _call_router(evidence):
+    """Hostinger AI Router, OpenAI chat completions with a JSON schema. -> (answer, model label)"""
+    key = os.environ.get("HOSTINGER_ROUTER_API_KEY", "").strip()
+    if not key:
+        raise ExplainError("Hostinger AI Router is not configured (HOSTINGER_ROUTER_API_KEY is missing).")
+    body = {
+        "model": ROUTER_MODEL,
+        "messages": [{"role": "system", "content": INSTRUCTIONS},
+                     {"role": "user", "content": "Evidence:\n" + evidence}],
+        "temperature": 0.2,
+        "max_tokens": 4096,   # the model also spends tokens on reasoning before the answer
+        "response_format": {"type": "json_schema", "json_schema": {"name": "swarm_explanation", "schema": SCHEMA}},
+    }
+    req = urllib.request.Request(ROUTER + "/chat/completions", data=json.dumps(body).encode(), method="POST",
+                                 headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json", "User-Agent": UA})
+    for attempt in range(2):
+        try:
+            with urllib.request.urlopen(req, timeout=60) as r:
+                out = json.load(r)
+            break
+        except urllib.error.HTTPError as e:
+            if e.code in (429, 500, 502, 503) and attempt < 1:
+                time.sleep(3)
+                continue
+            raise ExplainError(f"Hostinger AI Router answered with error {e.code}.") from None
+        except (urllib.error.URLError, TimeoutError):
+            if attempt < 1:
+                time.sleep(2)
+                continue
+            raise ExplainError("Hostinger AI Router did not answer.") from None
+    try:
+        text = out["choices"][0]["message"]["content"]
+        text = re.sub(r"^```(?:json)?\s*|\s*```$", "", text.strip())
+        return json.loads(text), f"{ROUTER_MODEL} via Hostinger AI Router"
+    except (KeyError, IndexError, TypeError, ValueError):
+        raise ExplainError("Hostinger AI Router gave no usable answer.") from None
+
+
+def _answer(evidence):
+    """Router first, Gemini directly as fallback. -> (answer, model label, note about the fallback or None)"""
+    errors = []
+    if os.environ.get("HOSTINGER_ROUTER_API_KEY", "").strip():
+        try:
+            answer, label = _call_router(evidence)
+            return answer, label, None
+        except ExplainError as e:
+            errors.append(str(e))
+    if os.environ.get("GEMINI_API_KEY", "").strip():
+        answer = _call_gemini(evidence)
+        return answer, f"{MODEL} via Google Gemini API", ("; ".join(errors) + " Used Google's Gemini API instead.") if errors else None
+    raise ExplainError(errors[0] if errors else "Explanations are not configured on this server (no language-model key).")
+
+
 def explain(cache_key, cluster, source):
     """Explanation for one cluster, cached by cache_key (e.g. ('shared', result id, cluster id))."""
     with _lock:
@@ -161,11 +223,13 @@ def explain(cache_key, cluster, source):
         if len(_calls) >= PER_HOUR:
             raise ExplainError(f"This demo allows {PER_HOUR} explanations per hour. Try again later.")
         _calls.append(now)
-    evidence = build_evidence(cluster, source)
     t0 = time.time()
-    answer = _call_gemini(evidence)
-    result = {"model": MODEL, "seconds": round(time.time() - t0, 1), "explanation": answer,
-              "evidence_sent": evidence}
+    news = [] if source.get("synthetic") else newscheck.check(cluster)   # simulated texts are never in the news
+    evidence = build_evidence(cluster, source) + "\n" + "\n".join(
+        newscheck.as_evidence(news) if not source.get("synthetic") else ["News check: skipped (synthetic data)."])
+    answer, label, note = _answer(evidence)
+    result = {"model": label, "seconds": round(time.time() - t0, 1), "explanation": answer,
+              "evidence_sent": evidence, "note": note, "news": news}
     with _lock:
         _cache[cache_key] = result
     return result

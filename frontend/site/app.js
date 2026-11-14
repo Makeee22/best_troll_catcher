@@ -324,8 +324,8 @@ function renderExplanation(box, answer) {
   const refs = (ids) => (ids && ids.length ? h("span", { class: "refs" }, " [" + ids.join(", ") + "]") : null);
   box.className = "verdict explained";
   box.replaceChildren(
-    h("p", { class: "ai-label" }, "AI-written explanation of the evidence below (" + answer.model + "). " +
-      "It can be wrong, and it does not change the result."),
+    h("p", { class: "ai-label" }, "AI-written explanation of the evidence below, by " + answer.model + ". " +
+      "It can be wrong, and it does not change the result." + (answer.note ? " (" + answer.note + ")" : "")),
     h("p", null, h("strong", null, "What the group appears to do: "), e.likely_activity || "unclear"),
     h("p", null, e.summary || ""),
     (e.observations || []).length ? h("ul", null, e.observations.map((o) => h("li", null, o.point, refs(o.evidence)))) : null,
@@ -338,8 +338,27 @@ function renderExplanation(box, answer) {
       h("p", null, h("strong", null, "What to check next")),
       h("ul", null, e.what_to_check_next.map((x) => h("li", null, x)))) : null,
     e.uncertainty ? h("p", { class: "muted" }, h("strong", null, "What the evidence cannot show: "), e.uncertainty) : null,
+    renderNews(answer.news || []),
     h("details", null, h("summary", null, "Evidence sent to the model (usernames replaced)"),
       h("pre", null, answer.evidence_sent || "")));
+}
+
+// News check (Context.dev news search, server side): coverage of the most shared items while the group was active.
+function renderNews(news) {
+  if (!news.length) return null;
+  let n = 0;
+  return h("div", { class: "news" },
+    h("p", null, h("strong", null, "News check"), h("span", { class: "muted" },
+      " (Context.dev news search for the most shared items, while the group was active ±2 days. Search hits, not confirmed matches.)")),
+    h("ul", null, news.map((r) => h("li", null,
+      h("span", { class: "muted" }, "For " + r.item + ": "),
+      r.error ? "the search failed." : !r.articles.length ? "no news articles in that window." :
+        h("ul", null, r.articles.map((a) => {
+          n += 1;
+          const link = /^https?:\/\//.test(a.url) ? h("a", { href: a.url, target: "_blank", rel: "noopener noreferrer" }, a.title || a.url) : (a.title || "");
+          return h("li", null, h("span", { class: "refs" }, "N" + n + " "), link,
+            h("span", { class: "muted" }, " · " + (a.source || "?") + (a.published_at ? " · " + a.published_at.slice(0, 10) : "")));
+        }))))));
 }
 
 function renderExplainBox(d) {
@@ -349,7 +368,7 @@ function renderExplainBox(d) {
   const say = h("span", { class: "muted" });
   button.addEventListener("click", async () => {
     button.disabled = true;
-    say.textContent = " Asking the language model… about 10–20 s.";
+    say.textContent = " Checking the news and asking the language model… about 15–30 s.";
     const token = loadToken;
     try {
       const answer = await ctx.explain(d.id);

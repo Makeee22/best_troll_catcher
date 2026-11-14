@@ -84,3 +84,12 @@ innocent explanations weighed (low / medium / high), what to check next and what
 - Privacy: usernames become "Member 1…n" and @handles / u/names in texts become "@someone" before anything is sent; only
   the cluster's evidence is sent. The page shows exactly what was sent.
 - Cached per result and cluster; at most 60 explanations per hour for the whole site. 503 when no key is configured, 429 over the cap.
+
+**News check (`api/newscheck.py`).** Before the model is asked, the three most shared items of the cluster are searched in
+Context.dev's news search (`POST /v1/news/search`, natural language, the group's active window ±2 days, 5 articles each,
+about 1 credit per item). The hits go to the model as evidence N1…, which it must judge (same story or not) for the
+breaking-news look-alike, and to the page. Skipped for synthetic data. @handles are removed from the queries.
+
+**Provider.** Hostinger AI Router first (`HOSTINGER_ROUTER_API_KEY`, model `ROUTER_MODEL`, default `gemini-3.5-flash-eu`,
+run in the EU; the router sits behind Cloudflare, which refuses Python's default User-Agent, so a named one is sent), and
+Google's Gemini API (`GEMINI_API_KEY`) as fallback; the answer says which one wrote it.
