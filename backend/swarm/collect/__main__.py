@@ -1,4 +1,5 @@
 import argparse
+import http.client
 import json
 import os
 import sys
@@ -31,6 +32,9 @@ def main(argv=None):
             json.dump(result, f, ensure_ascii=False, indent=1)
     except (CollectError, ConvertError, InputError, OSError) as e:
         print(f"error: {e}", file=sys.stderr)
+        return 2
+    except (http.client.HTTPException, ValueError) as e:   # a bad answer that got past the client: still one line
+        print(f"error: {type(e).__name__}: {str(e)[:200]}", file=sys.stderr)
         return 2
     except RecursionError:
         print("error: this thread is nested too deeply to save", file=sys.stderr)

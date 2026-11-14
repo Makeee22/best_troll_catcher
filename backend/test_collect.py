@@ -431,3 +431,98 @@ def test_other_links_on_review_sites_are_unsupported():
     for link in ("https://www.yelp.com/", "https://www.g2.com/categories/crm", "https://apps.apple.com.example.test/app/x"):
         with pytest.raises(CollectError, match="not supported yet"):
             collect(link, client=FakeClient())
+
+
+# --- bad answers, limits and fallbacks (final review) ----------------------------------------
+
+class _Body:
+    def __init__(self, data=b"{}", error=None):
+        self._data, self._error = data, error
+
+    def read(self, *a):
+        if self._error:
+            raise self._error
+        return self._data
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *a):
+        return False
+
+
+def _answers(monkeypatch, body):
+    monkeypatch.setattr(urllib.request, "urlopen", lambda *a, **k: body)
+
+
+import http.client
+
+BAD_BODIES = [_Body(b"<html>maintenance</html>"), _Body(b"[1, 2]"), _Body(error=http.client.IncompleteRead(b"{")),
+              _Body(error=ConnectionResetError("reset"))]
+
+
+@pytest.mark.parametrize("body", BAD_BODIES)
+def test_direct_json_turns_a_bad_answer_into_a_collect_error(monkeypatch, body):
+    _answers(monkeypatch, body)
+    with pytest.raises(CollectError):
+        contextdev.direct_json("https://example.test/x")
+
+
+@pytest.mark.parametrize("body", BAD_BODIES)
+def test_post_survives_a_bad_answer(monkeypatch, body):
+    _answers(monkeypatch, body)
+    out = contextdev.ContextDev("not-a-real-key")._post({"url": "https://example.test/"}, patient=False)
+    assert out["_http_error"] is not None
+
+
+def test_cli_never_prints_a_traceback_for_a_bad_answer(tmp_path, monkeypatch, capsys):
+    from swarm.collect import __main__ as cli
+    _answers(monkeypatch, _Body(b"<html>maintenance</html>"))
+    assert cli.main(["https://news.ycombinator.com/item?id=1", str(tmp_path / "o")]) == 2
+    err = capsys.readouterr().err
+    assert "Traceback" not in err and "error:" in err
+
+
+def test_cli_wraps_an_unexpected_failure_in_one_line(tmp_path, monkeypatch, capsys):
+    from swarm.collect import __main__ as cli
+    monkeypatch.setattr(cli, "collect", lambda *a, **k: (_ for _ in ()).throw(http.client.HTTPException("boom")))
+    assert cli.main(["https://example.test/x", str(tmp_path / "o")]) == 2
+    assert "Traceback" not in capsys.readouterr().err
+
+
+def test_run_raises_collect_error_for_a_thread_without_comments(monkeypatch):
+    from swarm.convert import ConvertError
+    monkeypatch.setattr(collect_module, "analyse", lambda *a, **k: (_ for _ in ()).throw(ConvertError("no comments")))
+    with pytest.raises(CollectError, match="no comments"):
+        run(POST_LINK, history=5, client=FakeClient(bluesky_routes()))
+
+
+def test_run_falls_back_to_no_similar_text_when_the_model_cannot_load(monkeypatch):
+    from swarm import core
+    from swarm.load import InputError
+    real, calls = core.analyze, []
+
+    def analyze(*args, similar_text=False, **kw):
+        calls.append(similar_text)
+        if similar_text:
+            raise InputError("cannot load the similar-text model x: offline")
+        return real(*args, **kw)
+    monkeypatch.setattr(core, "analyze", analyze)
+    result, _ = run(POST_LINK, history=5, client=FakeClient(bluesky_routes()))
+    assert calls == [True, False]
+    assert any("similar-text signal skipped" in w and "offline" in w for w in result["warnings"])
+
+
+def test_other_input_errors_still_fail_the_run(monkeypatch):
+    from swarm import core
+    from swarm.load import InputError
+    monkeypatch.setattr(core, "analyze", lambda *a, **k: (_ for _ in ()).throw(InputError("no usernames")))
+    with pytest.raises(CollectError, match="no usernames"):
+        run(POST_LINK, history=5, client=FakeClient(bluesky_routes()))
+
+
+def test_history_and_participants_are_clamped():
+    def route(url):
+        return {"hits": []} if "search_by_date" in url else HN_ITEM
+    bundle = collect(HN_LINK, history=500, max_participants=0, client=FakeClient(direct_routes=route))
+    assert bundle["thread"]["history_per_commenter"] == 100 and bundle["thread"]["commenters_fetched"] == 1

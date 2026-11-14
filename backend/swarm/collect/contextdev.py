@@ -5,6 +5,7 @@ builds: public JSON endpoints are fetched directly, and anything that needs Cont
 Plain urllib, so the core's image needs no new dependency.
 """
 import base64
+import http.client
 import json
 import os
 import threading
@@ -56,6 +57,8 @@ class ContextDev:
             try:
                 with urllib.request.urlopen(req, timeout=timeout or self.timeout) as r:
                     out = json.load(r)
+                if not isinstance(out, dict):
+                    raise ValueError("not a JSON object")
                 meta = out.get("key_metadata") or {}
                 with self._lock:
                     self.credits_used += meta.get("credits_consumed") or 0
@@ -84,7 +87,7 @@ class ContextDev:
                     time.sleep(2)
                     continue
                 return {"_http_error": e.code, "_error_code": code, "_message": err.get("message")}
-            except (urllib.error.URLError, TimeoutError, OSError):
+            except (OSError, http.client.HTTPException, ValueError):   # no answer, a cut-off or a non-JSON body
                 if attempt < 2 and patient:
                     time.sleep(2)
                     continue
@@ -156,19 +159,25 @@ class ContextDev:
 
 
 def direct_json(url, timeout=30):
-    """Plain GET of a public, login-free JSON endpoint."""
+    """Plain GET of a public, login-free JSON endpoint. Raises ContextDevError unless a JSON object comes back."""
     req = urllib.request.Request(url, headers={"User-Agent": "spot-the-swarm (Junction 2026 hackathon)", "Accept": "application/json"})
+    short = url.split("?")[0]
     for attempt in range(3):
         try:
             with urllib.request.urlopen(req, timeout=timeout) as r:
-                return json.load(r)
+                data = json.load(r)
         except urllib.error.HTTPError as e:
             if e.code in (429, 502, 503) and attempt < 2:
                 time.sleep(2 + attempt * 2)
                 continue
-            raise ContextDevError(f"The site answered {e.code} for {url.split('?')[0]}") from None
-        except (urllib.error.URLError, TimeoutError):
+            raise ContextDevError(f"The site answered {e.code} for {short}") from None
+        except (OSError, http.client.HTTPException):   # URLError, timeouts, resets, a body cut off mid-read
             if attempt < 2:
                 time.sleep(2)
                 continue
-            raise ContextDevError(f"No answer from {url.split('?')[0]}") from None
+            raise ContextDevError(f"No answer from {short}") from None
+        except ValueError:
+            raise ContextDevError(f"{short} did not answer with JSON") from None
+        if not isinstance(data, dict):
+            raise ContextDevError(f"{short} did not answer with a JSON object")
+        return data

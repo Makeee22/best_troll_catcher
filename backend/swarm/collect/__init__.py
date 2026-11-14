@@ -15,6 +15,7 @@ from .contextdev import CollectError, ContextDev, ContextDevError
 
 __all__ = ["collect", "run", "analyse", "CollectError", "ContextDev", "ContextDevError"]
 
+MAX_HISTORY = 100     # newest posts per commenter; more costs credits for little evidence
 SITES = [("bluesky", bluesky), ("hackernews", hackernews), ("reddit", reddit), ("reviews", reviews)]
 
 
@@ -31,6 +32,7 @@ def collect(url, *, history=25, max_participants=150, on_progress=None, client=N
     site = next(((name, mod) for name, mod in SITES if mod.matches(url)), None)
     if site is None:
         raise CollectError(f"This site is not supported yet: {re.sub(r'^https?://', '', url).split('/')[0]}")
+    history, max_participants = max(1, min(int(history), MAX_HISTORY)), max(1, int(max_participants))
     client = client or ContextDev.from_env()
     before = client.credits_used
     got = site[1].collect(url, client, history, max_participants, on_progress)
@@ -50,8 +52,16 @@ def analyse(bundle, work_dir, *, similar_text=True):
     """Convert a bundle into the two CSV files in work_dir and run the core on them."""
     from ..convert import write
     from ..core import analyze
+    from ..load import InputError
     comments_path, profiles_path, warnings = write(bundle, work_dir)
-    result = analyze(comments_path, profiles_path, similar_text=similar_text)
+    try:
+        result = analyze(comments_path, profiles_path, similar_text=similar_text)
+    except InputError as e:
+        if not (similar_text and "similar-text" in str(e)):
+            raise
+        # the model is missing and there is no network: a run without the reworded-copies signal is still worth having
+        warnings = warnings + [f"similar-text signal skipped: {e}"]
+        result = analyze(comments_path, profiles_path, similar_text=False)
     thread = bundle.get("thread") or {}
     result["source"]["comments_file"] = thread.get("label") or bundle["url"]
     if profiles_path and thread.get("histories_ok"):
@@ -61,7 +71,12 @@ def analyse(bundle, work_dir, *, similar_text=True):
 
 
 def run(url, *, similar_text=True, **collect_options):
-    """collect -> convert -> analyse. Returns (result, bundle)."""
+    """collect -> convert -> analyse. Returns (result, bundle). Every failure is a CollectError."""
+    from ..convert import ConvertError
+    from ..load import InputError
     bundle = collect(url, **collect_options)
     with tempfile.TemporaryDirectory(prefix="swarm-collect-") as work:
-        return analyse(bundle, work, similar_text=similar_text), bundle
+        try:
+            return analyse(bundle, work, similar_text=similar_text), bundle
+        except (ConvertError, InputError) as e:    # e.g. a thread with no comments
+            raise CollectError(str(e)) from None
