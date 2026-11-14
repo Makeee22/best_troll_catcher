@@ -397,3 +397,24 @@ def test_hn_anchor_label_is_replaced_only_when_it_is_a_cut_of_the_href():
 
 def test_hn_block_tag_inside_an_anchor_keeps_its_place():
     assert hn_text('x <a href="https://a.example/">see<br>this</a> y') == "x see\nthis y"
+
+
+def test_bluesky_broken_handles_use_the_did_and_self_reposts_are_skipped():
+    def post(uri, did, handle="handle.invalid"):
+        p = bsky_post(uri, handle, "t")
+        p["author"]["did"] = did
+        return p
+    rows, _, _ = sites.from_json({"thread": node(post("at://r", "did:plc:1"), node(post("at://c", "did:plc:2")))}, "u")
+    assert [r["username"] for r in rows] == ["did:plc:1", "did:plc:2"]
+    assert sites.from_json({"profiles": [{"did": "did:plc:3", "handle": "handle.invalid"}, {"did": "did:plc:4", "handle": ""},
+                                         {"did": "did:plc:5", "handle": "ok.test"}]}, "u")[1][0]["username"] == "did:plc:3"
+    by = lambda did, handle="handle.invalid": {"$type": "app.bsky.feed.defs#reasonRepost", "by": {"did": did, "handle": handle},
+                                               "indexedAt": "2026-11-14T11:00:00Z"}
+    feed = {"feed": [{"post": post("at://p1", "did:plc:1"), "reason": by("did:plc:2")},
+                     {"post": post("at://p2", "did:plc:1"), "reason": by("did:plc:1")}]}
+    rows = sites.from_json(feed, "u")[0]
+    assert [(r["comment_id"], r["username"]) for r in rows] == [("repost:did:plc:2:at://p1", "did:plc:2")]
+
+
+def test_hn_truncated_label_keeps_its_outer_whitespace():
+    assert hn_text('x <a href="https://h.example/pa">https://h.example/pa... </a>y') == "x https://h.example/pa y"

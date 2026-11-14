@@ -236,6 +236,12 @@ def _profile(username, display_name="", created_at="", post_count="", bio=""):
     return {"username": username, "display_name": display_name, "created_at": created_at, "post_count": post_count, "bio": bio}
 
 
+def _name(actor):
+    """The account name: the handle, or the DID when the handle is missing or 'handle.invalid' (else every broken handle is one user)."""
+    handle = _s(actor.get("handle"))
+    return handle if handle and handle != "handle.invalid" else _s(actor.get("did")) or handle
+
+
 def _bsky_post(post, source):
     """(row, profile) of a Bluesky post view; the row's thread is its root, or itself for a root post."""
     author, record = _d(post.get("author")), _d(post.get("record"))
@@ -244,7 +250,7 @@ def _bsky_post(post, source):
     features = [f for facet in _list(record.get("facets")) for f in _list(_d(facet).get("features"))]
     links = [_s(_d(f).get("uri")) for f in features if _s(_d(f).get("$type")).endswith("#link")]
     links.append(_s(_d(_d(post.get("embed")).get("external")).get("uri")))
-    handle = _s(author.get("handle"))
+    handle = _name(author)
     row = _row(uri, handle, _s(record.get("text")), source, _s(author.get("displayName")), _s(record.get("createdAt")),
                _s(_d(reply.get("parent")).get("uri")), _s(_d(reply.get("root")).get("uri")) or uri, " ".join(dict.fromkeys(filter(None, links))))  # a link in the text and the card counts once
     return row, _profile(handle, row["display_name"], _s(author.get("createdAt")))  # the profile only matters with a creation date
@@ -282,7 +288,9 @@ def _bsky_feed(feed):
         reason, post = _d(item.get("reason")), _d(item.get("post"))
         if _s(reason.get("$type")).endswith("#reasonRepost"):
             by = _d(reason.get("by"))
-            handle = _s(by.get("handle"))
+            handle = _name(by)
+            if handle == _name(_d(post.get("author"))):  # a repost of one's own post says nothing new
+                continue
             rows.append(_row(f"repost:{handle}:{_s(post.get('uri'))}", handle, "", "history", timestamp=_s(reason.get("indexedAt")),
                              repost_of=_s(post.get("uri"))))
             profiles += [_profile(handle, _s(by.get("displayName")), _s(by.get("createdAt")))] if by.get("createdAt") else []
@@ -294,7 +302,7 @@ def _bsky_feed(feed):
 
 
 def _bsky_profiles(items):
-    return [], [_profile(_s(p.get("handle")), _s(p.get("displayName")), _s(p.get("createdAt")), _s(p.get("postsCount")), _s(p.get("description")))
+    return [], [_profile(_name(p), _s(p.get("displayName")), _s(p.get("createdAt")), _s(p.get("postsCount")), _s(p.get("description")))
               for p in map(_d, _list(items))], []
 
 
@@ -323,7 +331,8 @@ class _PlainText(HTMLParser):
             # Algolia cuts a long URL's anchor text with "..."; the href is the whole URL. Any other label stays as written.
             label = text.strip()
             cut = label.rstrip("….").rstrip() if label.endswith(("...", "…")) else None
-            self.parts.append(href if cut and href.startswith(cut) and cut.startswith("http") else text)
+            keep = cut and href.startswith(cut) and cut.startswith("http")
+            self.parts.append(text[:len(text) - len(text.lstrip())] + href + text[len(text.rstrip()):] if keep else text)
             self.anchor = None
 
     def handle_data(self, data):
