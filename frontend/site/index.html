@@ -1,0 +1,91 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light dark">
+  <title>Spot the swarm</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header class="top">
+  <div>
+    <h1>Spot the swarm</h1>
+    <p class="muted">Finds groups of accounts that repeatedly post the same content within seconds of each other.</p>
+  </div>
+  <span id="synthetic-badge" class="badge-synthetic" hidden>Synthetic data</span>
+</header>
+
+<main>
+  <section class="card" aria-labelledby="upload-h">
+    <h2 id="upload-h">Analyse a CSV file</h2>
+    <label id="drop" class="drop" for="file">
+      <input id="file" type="file" accept=".csv,text/csv">
+      <strong>Choose a .csv file</strong> or drop it here
+      <span class="muted">UTF-8, at most 20 MB</span>
+    </label>
+    <p id="status" class="muted" role="status"></p>
+    <div id="error" class="error" role="alert" hidden></div>
+    <p>
+      <button id="try-sample" type="button">Run the synthetic sample</button>
+      <a href="samples/synthetic_sample.csv" download>Download the sample CSV</a>
+      <a href="samples/tiny_synthetic_example.csv" download>Tiny example (20 rows)</a>
+    </p>
+    <details>
+      <summary>Expected CSV format</summary>
+      <p>First line is the header. One row per post. Separator comma (semicolon also works); quote text that contains the separator.</p>
+      <div class="scroll">
+        <table>
+          <thead><tr><th>Column</th><th>Required</th><th>Meaning</th></tr></thead>
+          <tbody>
+            <tr><td><code>id</code></td><td>yes</td><td>Unique per post.</td></tr>
+            <tr><td><code>account</code></td><td>yes</td><td>The author's stable id or handle.</td></tr>
+            <tr><td><code>timestamp</code></td><td>yes</td><td>ISO 8601, e.g. <code>2026-11-01T10:00:00Z</code>. Without an offset it is read as UTC.</td></tr>
+            <tr><td><code>text</code></td><td>yes (may be empty)</td><td>The post text. Links inside it are found automatically.</td></tr>
+            <tr><td><code>links</code></td><td>no</td><td>URLs separated by a space or <code>|</code>.</td></tr>
+            <tr><td><code>repost_of</code></td><td>no</td><td>Id of the reposted post.</td></tr>
+            <tr><td><code>coordinated</code></td><td>no</td><td><code>true</code>/<code>false</code>: the known label. Needed for the metrics. Leave empty when unknown.</td></tr>
+            <tr><td><code>synthetic</code></td><td>no</td><td><code>true</code> for simulated posts.</td></tr>
+          </tbody>
+        </table>
+      </div>
+<pre>id,account,timestamp,text,links,repost_of,coordinated,synthetic
+1,some_user,2026-11-01T10:00:00Z,"Post text, with a comma",https://example.org/a,,false,true</pre>
+    </details>
+  </section>
+
+  <div id="results" hidden>
+    <section class="card" aria-labelledby="summary-h">
+      <h2 id="summary-h">Summary</h2>
+      <dl id="summary" class="tiles"></dl>
+      <p id="synthetic-note" class="note" hidden>This data is simulated. Results on it show that the code works, not how good the detection is on real traffic.</p>
+    </section>
+
+    <section class="card" aria-labelledby="flagged-h">
+      <h2 id="flagged-h">Flagged accounts</h2>
+      <p class="muted">Flagged = posted the same content within 60 seconds of another account on at least 3 separate occasions, in a linked group of at least 3 accounts. A flag is a lead to check, not proof: automated news feeds posting the same headlines look the same to these rules.</p>
+      <div id="flagged"></div>
+    </section>
+
+    <section class="card" aria-labelledby="metrics-h">
+      <h2 id="metrics-h">How good is the detection on this data?</h2>
+      <div id="metrics"></div>
+    </section>
+
+    <section class="card" aria-labelledby="swarms-h">
+      <h2 id="swarms-h">Swarms</h2>
+      <div id="swarm-list" class="swarm-list"></div>
+      <div id="detail"></div>
+    </section>
+  </div>
+</main>
+
+<footer class="muted">
+  Junction 2026 hackathon project, MIT licence.
+  <a href="https://github.com/Makeee22/best_troll_catcher">Source</a>
+</footer>
+
+<script src="config.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
