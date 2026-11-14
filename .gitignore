@@ -31,3 +31,6 @@ build/
 .idea/
 .vscode/
 .DS_Store
+
+# Partner notes kept out of the public repo
+PartnerAPIs.md
