@@ -17,6 +17,9 @@ visitors; a restart goes back to whatever swarm.api loads at startup (the synthe
 sample unless RESULT_FILE or COMMENTS_FILE is set).
 
     uvicorn app:app --port 8000      # from frontend/api/, with backend/ on the path
+
+Also: Reddit thread analysis jobs (POST /api/jobs/reddit, GET /api/jobs/{id}); see jobs.py.
+Their results are per job and never replace the shared result above.
 """
 import os
 import re
@@ -80,6 +83,13 @@ def upload(comments: UploadFile = File(...), profiles: UploadFile | None = File(
             base.result = result
             base.by_id = {c["id"]: c for c in result["clusters"]}
             return base.list_swarms()
+
+
+# Reddit thread analysis: background jobs, each visible only through its own id (jobs.py).
+sys.path.insert(0, str(HERE))
+import jobs  # noqa: E402
+
+jobs.register(app, analyze, lock)
 
 
 # Local convenience only (no Docker, no nginx): serve the page from the same port.

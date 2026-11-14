@@ -4,4 +4,7 @@
 !backend/swarm
 !frontend/api/requirements.txt
 !frontend/api/app.py
+!frontend/api/contextdev.py
+!frontend/api/reddit_html.py
+!frontend/api/jobs.py
 **/__pycache__

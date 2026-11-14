@@ -18,6 +18,9 @@ services:
     build:
       context: .                          # repo root: the image copies backend/swarm in
       dockerfile: frontend/api/Dockerfile
+    env_file:                             # CONTEXT_DEV_API_KEY for collecting Reddit histories; git-ignored
+      - path: .env
+        required: false                   # without it the site runs; collecting says it is not configured
     expose:
       - "8000"
     restart: unless-stopped
