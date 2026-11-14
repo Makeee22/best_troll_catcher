@@ -15,6 +15,12 @@ from datetime import datetime, timedelta, timezone
 WORDS = ("the city council voted on a new budget for schools and roads after long debate "
          "people in town say prices keep rising while wages stay flat this winter many "
          "families plan to travel less and cook at home more often than last year").split()
+# Used only by the reworded swarm: a member swaps a few words for these.
+SYNONYMS = {"city": "town", "council": "board", "voted": "decided", "new": "fresh", "budget": "spending",
+            "schools": "classrooms", "roads": "streets", "long": "lengthy", "debate": "discussion",
+            "people": "residents", "say": "claim", "prices": "costs", "keep": "continue", "rising": "climbing",
+            "wages": "salaries", "stay": "remain", "flat": "stagnant", "families": "households",
+            "plan": "intend", "travel": "journey", "cook": "prepare", "often": "frequently"}
 DAY = 24 * 3600
 START = datetime(2026, 11, 1, tzinfo=timezone.utc)
 COMMENT_FIELDS = ["comment_id", "username", "timestamp", "text", "repost_of", "synthetic"]
@@ -25,7 +31,7 @@ def iso(moment):
     return moment.strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
-def generate(seed=0):
+def generate(seed=0, reworded=False):
     rng = random.Random(seed)
     comments, profiles = [], []
     seen = set()
@@ -104,12 +110,34 @@ def generate(seed=0):
             for _ in range(10):
                 add(member, rng.uniform(0, DAY), sentence())
 
+    if reworded:
+        # A swarm that rewords: every member posts each campaign message in its own wording,
+        # so no two members post identical text and the exact-match signals find nothing.
+        members = [f"troll_2_{i}" for i in range(6)]
+        created = datetime(2024, 6, 1, tzinfo=timezone.utc) + timedelta(days=rng.uniform(0, 300))
+        for member in members:
+            profiles.append({"username": member, "label": "bot:reworded",
+                             "created_at": iso(created + timedelta(days=rng.uniform(0, 10)))})
+        for _ in range(6):
+            base = rng.uniform(0, DAY)
+            message = " ".join(rng.choices(sorted(SYNONYMS), k=rng.randint(8, 12)))
+            for member in members:
+                words = message.split()
+                for i in rng.sample(range(len(words)), 3):
+                    words[i] = SYNONYMS[words[i]]
+                j = rng.randrange(len(words) - 1)
+                words[j], words[j + 1] = words[j + 1], words[j]
+                add(member, base + rng.uniform(0, 30), f"@{rng.choice(users)} " + " ".join(words))
+        for member in members:
+            for _ in range(10):
+                add(member, rng.uniform(0, DAY), sentence())
+
     rng.shuffle(comments)
     return comments, profiles
 
 
-def write(directory, seed=0):
-    comments, profiles = generate(seed)
+def write(directory, seed=0, reworded=False):
+    comments, profiles = generate(seed, reworded)
     os.makedirs(directory, exist_ok=True)
     paths = []
     for name, fields, rows in (("comments.csv", COMMENT_FIELDS, comments), ("profiles.csv", PROFILE_FIELDS, profiles)):

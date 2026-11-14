@@ -95,7 +95,7 @@ Backend (Python 3.12+), run from `backend/`:
 ```bash
 python -m venv .venv && .venv/bin/pip install -r requirements-dev.txt   # once (run-time: requirements.txt)
 python -m swarm.synthetic DIR                                           # write the synthetic sample (comments.csv, profiles.csv)
-python -m swarm COMMENTS [--profiles FILE] [--out FILE] [--min-confidence X]   # the core: summary on stdout, JSON with --out
+python -m swarm COMMENTS [--profiles FILE] [--out FILE] [--min-confidence X] [--similar-text]   # the core: summary on stdout, JSON with --out; --similar-text needs pip install model2vec
 python -m swarm.cresci SOURCE_DIR OUT_DIR                               # convert Cresci 2017 to the standard format
 .venv/bin/uvicorn swarm.api:app --reload                                # API on :8000, synthetic sample
 RESULT_FILE=result.json .venv/bin/uvicorn swarm.api:app                 # API serving a result written with --out
@@ -116,6 +116,7 @@ One DuckDB connection per run carries the data through four stages; each is a mo
 - `backend/swarm/core.py`: `analyze()` runs the stages and builds the result document.
 - `backend/swarm/__main__.py`: the command line, a thin wrapper around `analyze()`.
 - `backend/swarm/synthetic.py`: simulated data in the standard format with known swarms and innocent look-alikes (`synthetic = 1` on every comment).
+- `backend/swarm/similar.py`: optional `similar_text` signal (reworded copies, via a small static embedding model); off by default.
 - `backend/swarm/cresci.py`: converts the Cresci 2017 zips to the standard format.
 - `backend/swarm/api.py`: read-only FastAPI app serving one result, fixed at startup (`RESULT_FILE`, else `COMMENTS_FILE` + `PROFILES_FILE`, else the synthetic sample). A bad file stops startup with a message. The contract is `docs/api.md`.
 - Tests: one `backend/test_*.py` per module; `conftest.py` has the `make_csv` helper.

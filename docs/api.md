@@ -169,12 +169,13 @@ Counted per account: a flagged account is one that is in a listed cluster. `by_l
 For people who run the core themselves. Python 3.12+ and `pip install -r requirements.txt` in `backend/`.
 
 ```bash
-python -m swarm COMMENTS [--profiles FILE] [--out FILE] [--min-confidence X]
+python -m swarm COMMENTS [--profiles FILE] [--out FILE] [--min-confidence X] [--similar-text]
 ```
 
 - Warnings go to standard error, one per line, starting with `warning: `.
 - Standard output is a short summary: one line per signal, the number of clusters, one line per cluster (id, size, confidence), and, with labels, precision, recall and false-positive rate at the cut. If the data is synthetic, the first line says so.
 - `--out FILE` writes the full result as JSON. That file is what `RESULT_FILE` expects, and its `clusters` list is what the API calls `swarms`.
+- `--similar-text` (optional, off by default) also links accounts that post reworded copies of the same text. It needs `pip install model2vec` and downloads a small model once. It is slower (about 40 s for 80,000 distinct texts) and limited to 100,000 distinct texts. It adds a `similar_text` entry to `signals`.
 - A bad input ends with one line `error: <what to fix>` and exit code 2, never a traceback.
 - `python -m swarm.synthetic DIR` writes the synthetic sample (`comments.csv`, `profiles.csv`) into `DIR`.
 - `python -m swarm.cresci SOURCE_DIR OUT_DIR` converts the Cresci 2017 dataset (research use only, never committed) to the same two files.

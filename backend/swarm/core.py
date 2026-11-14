@@ -85,12 +85,12 @@ def _edges(con):
 
 
 def analyze(comments_path, profiles_path=None, *, min_confidence=MIN_CONFIDENCE, min_shared=d.MIN_SHARED,
-            alpha=d.ALPHA, min_size=d.MIN_SIZE, pair_budget=d.PAIR_BUDGET):
+            alpha=d.ALPHA, min_size=d.MIN_SIZE, pair_budget=d.PAIR_BUDGET, similar_text=False):
     con = connect()
     try:
         warnings = load(con, comments_path, profiles_path)
         signals, detect_warnings = d.detect(con, min_shared=min_shared, alpha=alpha, min_size=min_size,
-                                            pair_budget=pair_budget)
+                                            pair_budget=pair_budget, similar_text=similar_text)
         comments, accounts, synthetic = con.execute(
             "select count(*), count(distinct username), coalesce(bool_or(synthetic), false) from comments").fetchall()[0]
         return {
@@ -98,7 +98,7 @@ def analyze(comments_path, profiles_path=None, *, min_confidence=MIN_CONFIDENCE,
                        "profiles_file": os.path.basename(profiles_path) if profiles_path else None,
                        "comments": comments, "accounts": accounts, "synthetic": bool(synthetic)},
             "parameters": {"min_words": d.MIN_WORDS, "min_shared": min_shared, "alpha": alpha, "min_size": min_size,
-                           "min_confidence": min_confidence},
+                           "min_confidence": min_confidence, **({"similar_text": True} if similar_text else {})},
             "signals": signals,
             "warnings": warnings + detect_warnings,
             "clusters": _clusters(con, min_confidence),

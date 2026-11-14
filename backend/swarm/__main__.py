@@ -14,9 +14,12 @@ def main(argv=None):
     parser.add_argument("--out", help="write the full result as JSON to this file")
     parser.add_argument("--min-confidence", type=float, default=MIN_CONFIDENCE,
                         help=f"lowest confidence reported (default {MIN_CONFIDENCE})")
+    parser.add_argument("--similar-text", action="store_true",
+                        help="also link accounts that post reworded copies (needs pip install model2vec)")
     args = parser.parse_args(argv)
     try:
-        result = analyze(args.comments, args.profiles, min_confidence=args.min_confidence)
+        result = analyze(args.comments, args.profiles, min_confidence=args.min_confidence,
+                         similar_text=args.similar_text)
     except InputError as e:
         print(f"error: {e}", file=sys.stderr)
         return 2

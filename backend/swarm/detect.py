@@ -1,5 +1,6 @@
 import hashlib
 
+from . import similar
 from .load import InputError
 
 # Fewest words a text needs to count as something two accounts can copy. Shorter texts ("good morning") are reused innocently.
@@ -17,12 +18,14 @@ KINDS = ("text", "link", "repost", "reply")
 # Column each kind reads; a kind is skipped when all of its columns are empty.
 _NEEDS = {"text": ("text",), "link": ("text", "links"), "repost": ("repost_of",), "reply": ("parent_id",)}
 
+_WORDS = r"""regexp_extract_all(
+        regexp_replace(regexp_replace(lower(coalesce(text, '')), 'https?://\S+', ' ', 'g'), '@[\p{L}\p{N}_]+', ' ', 'g'),
+        '[\p{L}\p{N}_]+')"""
+
 _ITEMS_SQL = r"""
 create or replace table item as
 with c as (select comment_id, username, timestamp as ts, text, links, parent_id, repost_of from comments),
-t as (select *, regexp_extract_all(
-        regexp_replace(regexp_replace(lower(coalesce(text, '')), 'https?://\S+', ' ', 'g'), '@[\p{L}\p{N}_]+', ' ', 'g'),
-        '[\p{L}\p{N}_]+') as words
+t as (select *, __WORDS__ as words
       from c where repost_of is null),
 raw as (
   select username, 'repost' as kind, hash(repost_of) as key, repost_of as value, ts from c where repost_of is not null
@@ -36,6 +39,14 @@ raw as (
   select username, 'reply', hash(parent_id), parent_id, ts from c where parent_id is not null and repost_of is null)
 select username, kind, key, first(value order by ts nulls last, value) as value, min(ts) as first_seen, max(ts) as last_seen
 from raw group by username, kind, key
+"""
+
+# Distinct normalised texts, for the optional similar-text signal.
+_TEXT_NORM_SQL = r"""
+create or replace table text_norm as
+select distinct hash(norm) as key, norm from (
+  select array_to_string(__WORDS__, ' ') as norm, len(__WORDS__) as n from comments where repost_of is null)
+where n >= __MIN_WORDS__
 """
 
 
@@ -83,10 +94,17 @@ def _clusters(links, min_size):
     return [sorted(g) for g in groups.values() if len(g) >= min_size]
 
 
-def detect(con, *, min_shared=MIN_SHARED, alpha=ALPHA, min_size=MIN_SIZE, pair_budget=PAIR_BUDGET):
+def detect(con, *, min_shared=MIN_SHARED, alpha=ALPHA, min_size=MIN_SIZE, pair_budget=PAIR_BUDGET, similar_text=False):
     warnings = []
     skipped = _skipped(con)
-    con.execute(_ITEMS_SQL.replace("__MIN_WORDS__", str(int(MIN_WORDS))))
+    fill = lambda sql: sql.replace("__WORDS__", _WORDS).replace("__MIN_WORDS__", str(int(MIN_WORDS)))
+    con.execute(fill(_ITEMS_SQL))
+    if similar_text:
+        con.execute(fill(_TEXT_NORM_SQL))
+        similar_warnings = similar.add_items(con)
+        warnings += similar_warnings
+        if similar_warnings:
+            skipped["similar_text"] = similar_warnings[0]
     if con.execute("select count(*) from item").fetchall()[0][0] == 0:
         raise InputError("nothing to compare: needs comments with a text of at least "
                          f"{MIN_WORDS} words, links, repost_of or parent_id (columns text, links, repost_of, parent_id)")
@@ -144,7 +162,7 @@ def detect(con, *, min_shared=MIN_SHARED, alpha=ALPHA, min_size=MIN_SIZE, pair_b
         con.execute("insert into cluster select cluster, count(*), round(avg(copied_share), 9) from member group by cluster")
 
     signals = {}
-    for kind in KINDS:
+    for kind in KINDS + ((("similar_text",)) if similar_text else ()):
         if kind in skipped:
             signals[kind] = {"status": "skipped", "reason": skipped[kind], "items": 0, "links": 0}
             continue
