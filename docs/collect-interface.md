@@ -52,7 +52,8 @@ result["warnings"] = warnings + result["warnings"]                 # "read 188 o
 ```
 
 - **What it replaces in `jobs.py`:** `reddit_html.parse_thread()` (step 1) and `contextdev.to_rows()` + `_write_csv()` (steps 2–3).
-- **Bug in `frontend/api/reddit_html.py` (live on the site now), for Makeee22:**
+- **Done 14.11 ~17:15 (Makeee22):** `jobs.py` now uses `swarm.convert` for the Reddit thread and the histories, exactly as above. `reddit_html.py` is used only for the thread's title, subreddit and comment count (attributes of `<shreddit-post>`, not affected by the bug). The post's own row from the converter is left out of "read N of M". Only columns in `swarm.load.COMMENT_COLUMNS` / `PROFILE_COLUMNS` are written, so the converter's `display_name`/`source` on comment rows do not cause warnings. Bluesky still converts in `frontend/api/bluesky.py` until `swarm.convert` has a Bluesky mapper. On the two pages saved earlier the file itself held only 25 comments, so 25 was right there; the bug hits pages with more loaded comments.
+- **Bug in `frontend/api/reddit_html.py` (fixed by the switch above), for Makeee22:**
   - **What:** its parser counts open tags inside a comment's text and closes the text on the matching end tag. A void tag such as `<br>` has no end tag, so the count never reaches zero. The parser then stays "inside" that comment and swallows every later `<shreddit-comment>` on the page.
   - **Effect, measured on a real saved thread on 14.11:** 47 of the 188 comments on the page were read, so 141 commenters and their histories never reached the analysis, and one comment's text came out empty. The site's "read N of M comments" line undercounts the same way.
   - **Fix:** switch to the converter (below), which reads all 188, or skip void tags (`br`, `img`, `hr`, `input`, `wbr`) in `handle_starttag`. The backend left the file unchanged because it is in `frontend/`.

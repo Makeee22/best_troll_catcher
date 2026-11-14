@@ -28,7 +28,9 @@ from pydantic import BaseModel
 
 import bluesky
 import contextdev
-import reddit_html
+import reddit_html    # only for the thread's title and subreddit; comments come from the backend's converter
+from swarm.convert import ConvertError, convert as convert_bundle
+from swarm.load import COMMENT_COLUMNS, PROFILE_COLUMNS
 
 MAX_PAGE_BYTES = 15 * 1024 * 1024
 HISTORY = 25          # newest comments per commenter (B11: ~15; 25 for margin, 1 credit each either way)
@@ -88,13 +90,24 @@ def _write_csv(path, rows, fields):
         w.writerows(rows)
 
 
+def _fields(preferred, rows):
+    """Columns present in the rows that the core reads (swarm.load); extra converter columns would only add warnings."""
+    known = COMMENT_COLUMNS if preferred is COMMENT_FIELDS else PROFILE_COLUMNS
+    present = {k for r in rows for k in r}
+    return [f for f in dict.fromkeys(list(preferred) + list(known)) if f in present]
+
+
 class UrlJob(BaseModel):
     url: str
 
 
-def _collect_reddit(job, client, thread):
-    """-> (comment rows, profile rows, label of the comments, label of the profiles, coverage warnings)"""
-    authors = thread["authors"][:MAX_USERS]
+def _collect_reddit(job, client, bundle, authors, post):
+    """-> (comment rows, profile rows, label of the comments, label of the profiles, warnings)
+
+    Collect = the histories; convert = the backend's swarm.convert (docs/collect-interface.md,
+    "How to call the converter"): the thread page plus one profile page per fetched history.
+    """
+    authors = authors[:MAX_USERS]
     job["stage"] = f"Fetching the recent comments of {len(authors)} commenters"
 
     def progress(done, total):
@@ -103,10 +116,17 @@ def _collect_reddit(job, client, thread):
     histories = client.reddit_histories(authors, limit=HISTORY, on_progress=progress)
     job["histories_ok"] = sum(1 for h in histories if h["status"] == "ok")
     job["histories_failed"] = sum(1 for h in histories if h["status"] == "failed")
-    comments, profiles = contextdev.to_rows(histories, thread["comments"])
-    post = thread["post"] or {}
+    for h in histories:
+        if h["status"] != "failed":
+            bundle["pages"].append({"url": f"https://www.reddit.com/user/{h['username']}", "role": "profile",
+                                    "parsed": {"type": "reddit-user", "success": True,
+                                               "data": {"user": {"username": h["username"], "created_at": h.get("created_at")},
+                                                        "comments": h["comments"]}}})
+    comments, profiles, notes = convert_bundle(bundle)
+    if job["histories_failed"]:
+        notes = [f"thread: the recent comments of {job['histories_failed']} commenters could not be fetched"] + list(notes)
     return (comments, profiles, f"{post.get('subreddit') or 'Reddit'} thread {post.get('id') or ''}".strip(),
-            f"recent comments of {job['histories_ok']} commenters (Context.dev)", [])
+            f"recent comments of {job['histories_ok']} commenters (Context.dev)", list(notes))
 
 
 def _collect_bluesky(job, client, url):
@@ -154,8 +174,8 @@ def _run(job, collect, analyze, analysis_lock):
         job["status"], job["stage"] = "analysing", "Looking for accounts that act together"
         with tempfile.TemporaryDirectory(prefix="swarm-job-") as work:
             cpath, ppath = Path(work, "comments.csv"), Path(work, "profiles.csv")
-            _write_csv(cpath, comments, [f for f in COMMENT_FIELDS if any(f in r for r in comments)])
-            _write_csv(ppath, profiles, [f for f in PROFILE_FIELDS if any(f in r for r in profiles)])
+            _write_csv(cpath, comments, _fields(COMMENT_FIELDS, comments))
+            _write_csv(ppath, profiles, _fields(PROFILE_FIELDS, profiles))
             with analysis_lock:
                 result = analyze(str(cpath), str(ppath) if profiles else None)
         result["source"]["comments_file"] = comments_label
@@ -220,17 +240,27 @@ def register(app, analyze, analysis_lock):
         if len(raw) > MAX_PAGE_BYTES:
             raise HTTPException(413, "The saved page is larger than 15 MB.")
         try:
-            parsed = reddit_html.parse_thread(raw)
-        except reddit_html.NotARedditThread as e:
-            raise HTTPException(400, str(e)) from None
-        if not parsed["authors"]:
+            post = reddit_html.parse_thread(raw)["post"] or {}
+        except reddit_html.NotARedditThread:
+            post = {}
+        url = "https://www.reddit.com/" + (f"comments/{post['id']}/" if post.get("id") else "")
+        bundle = {"url": url, "site": "reddit",
+                  "pages": [{"url": url, "role": "thread", "html": raw.decode("utf-8", errors="replace")}]}
+        try:
+            rows, _, _ = convert_bundle(bundle)
+        except ConvertError:
+            raise HTTPException(400, "No Reddit comments found in this file. Open the thread on reddit.com, "
+                                     "scroll so the comments load, then save the page (Ctrl+S) and choose that file.") from None
+        rows = [r for r in rows if r.get("comment_id") != post.get("id")]   # the converter also returns the post itself
+        authors = list(dict.fromkeys(r["username"] for r in rows))   # anonymous and [deleted] are already gone
+        if not authors:
             raise HTTPException(400, "No commenters found in the saved page. Scroll down so the comments load, then save again.")
-        post = parsed["post"] or {}
-        fetched = min(len(parsed["authors"]), MAX_USERS)
+        fetched = min(len(authors), MAX_USERS)
         thread = {"platform": "Reddit", "subreddit": post.get("subreddit"), "title": post.get("title"), "post_id": post.get("id"),
-                  "comments_found": parsed["found"], "comments_expected": parsed["expected"],
-                  "commenters": len(parsed["authors"]), "history_per_commenter": HISTORY, "commenters_fetched": fetched}
-        return _start(thread, fetched, lambda job, client: _collect_reddit(job, client, parsed), analyze, analysis_lock)
+                  "comments_found": len(rows), "comments_expected": post.get("comment_count"),
+                  "commenters": len(authors), "history_per_commenter": HISTORY, "commenters_fetched": fetched}
+        return _start(thread, fetched, lambda job, client: _collect_reddit(job, client, bundle, authors, post),
+                      analyze, analysis_lock)
 
     def _get(job_id):
         _cleanup()
