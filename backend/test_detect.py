@@ -83,6 +83,17 @@ def test_copies_differ_by_case_mentions_and_links_in_any_script(tmp_path, make_c
     assert clusters(con) == [{"a", "b", "c"}]
 
 
+def test_links_are_compared_after_normalising(tmp_path, make_csv):
+    posted = {"a": "HTTP://WWW.Example.com/a/?utm_source=x#top", "b": "https://example.com/a",
+              "c": "http://example.com/a/?fbclid=1", "d": "https://example.com/A",
+              "e": "https://example.com/a?id=5&utm_medium=y", "f": "https://example.com/a?id=5"}
+    con, _, _ = run(tmp_path, make_csv, [{"username": u, "text": f"read {url}"} for u, url in posted.items()])
+    key = dict(con.execute("select username, key from item where kind = 'link'").fetchall())
+    assert key["a"] == key["b"] == key["c"]
+    assert key["d"] != key["a"] and key["e"] == key["f"] != key["a"]
+    assert con.execute("select value from item where username = 'a' and kind = 'link'").fetchall() == [(posted["a"],)]
+
+
 def test_a_repost_gives_only_its_repost_item(tmp_path, make_csv):
     rows = [{"username": "a", "text": "RT this is the original text of the post https://x.example/1", "repost_of": "p1", "parent_id": "q1"}]
     con, _, _ = run(tmp_path, make_csv, rows)

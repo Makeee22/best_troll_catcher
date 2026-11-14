@@ -22,6 +22,9 @@ _WORDS = r"""regexp_extract_all(
         regexp_replace(regexp_replace(lower(coalesce(text, '')), 'https?://\S+', ' ', 'g'), '@[\p{L}\p{N}_]+', ' ', 'g'),
         '[\p{L}\p{N}_]+')"""
 
+# Same link whatever the scheme, `www.`, tracking parameters, fragment or trailing slash; path and query keep their case.
+_LINK_KEY = r"""regexp_replace(lower(host), '^www\.', '') || regexp_replace(path, '/$', '') || case when q = '' then '' else '?' || q end"""
+
 _ITEMS_SQL = r"""
 create or replace table item as
 with c as (select comment_id, username, timestamp as ts, text, links, parent_id, repost_of from comments),
@@ -32,9 +35,15 @@ raw as (
   union all
   select username, 'text', hash(array_to_string(words, ' ')), text, ts from t where len(words) >= __MIN_WORDS__
   union all
-  select username, 'link', hash(url), url, ts
-    from (select username, ts, rtrim(unnest(regexp_extract_all(coalesce(text, '') || ' ' || coalesce(links, ''), 'https?://\S+')), '.,)') as url
-          from c where repost_of is null)
+  select username, 'link', hash(__LINK_KEY__), url, ts
+    from (select username, ts, url,
+                 regexp_extract(a, '^[^/?]*') as host, regexp_extract(a, '^[^/?]*([^?]*)', 1) as path,
+                 -- query without tracking parameters; the '&' in front makes every parameter start the same way
+                 regexp_replace(regexp_replace('&' || regexp_extract(a, '\?(.*)$', 1),
+                                '&(utm_[^&=]*(=[^&]*)?|(fbclid|gclid)=[^&]*)', '', 'g'), '^&', '') as q
+          from (select username, ts, url, regexp_replace(regexp_replace(url, '(?i)^https?://', ''), '#.*$', '') as a
+                from (select username, ts, rtrim(unnest(regexp_extract_all(coalesce(text, '') || ' ' || coalesce(links, ''), '(?i)https?://\S+')), '.,)') as url
+                      from c where repost_of is null)))
   union all
   select username, 'reply', hash(parent_id), parent_id, ts from c where parent_id is not null and repost_of is null)
 select username, kind, key, first(value order by ts nulls last, value) as value, min(ts) as first_seen, max(ts) as last_seen
@@ -98,7 +107,7 @@ def _clusters(links, min_size):
 def detect(con, *, min_shared=MIN_SHARED, alpha=ALPHA, min_size=MIN_SIZE, pair_budget=PAIR_BUDGET, similar_text=False):
     warnings = []
     skipped = _skipped(con)
-    fill = lambda sql: sql.replace("__WORDS__", _WORDS).replace("__MIN_WORDS__", str(int(MIN_WORDS)))
+    fill = lambda sql: sql.replace("__WORDS__", _WORDS).replace("__LINK_KEY__", _LINK_KEY).replace("__MIN_WORDS__", str(int(MIN_WORDS)))
     con.execute(fill(_ITEMS_SQL))
     if similar_text:
         if "text" in skipped:
