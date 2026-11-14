@@ -1,12 +1,14 @@
-"""Reddit thread analysis as a background job, visible only through its own random id.
+"""Discussion analysis as a background job, visible only through its own random id.
 
+POST /api/jobs/url                    JSON {"url": "..."}: a Bluesky post link (https://bsky.app/profile/NAME/post/ID)
+                                      -> 202 {"id", ...}; 400 for a Reddit link (use the saved page) or any other site
 POST /api/jobs/reddit                 multipart "page": a Reddit thread page saved from the browser (HTML)
                                       -> 202 {"id", "thread": {...}}; 400 if it is not a Reddit thread
 GET  /api/jobs/{id}                   status, progress, and when done the listing (same shape as GET /api/swarms)
 GET  /api/jobs/{id}/swarms/{swarm}    one cluster, same shape as GET /api/swarms/{id}
 
-Steps: read the thread's comments and commenters from the page, fetch each commenter's recent
-Reddit comments with Context.dev, run swarm.core.analyze() on thread + histories.
+Steps: collect the discussion and each participant's recent public history (bluesky.py; for Reddit
+reddit_html.py + contextdev.py), then run swarm.core.analyze() on thread + histories.
 
 Privacy: results stay in memory only, for JOB_TTL seconds, and are reachable only by the job id
 (not listed anywhere, not shown to other visitors). Nothing is written to disk except the
@@ -14,6 +16,7 @@ temporary CSV files of one analysis, deleted right after it. A cap on jobs per h
 site from being used for mass profiling.
 """
 import csv
+import re
 import secrets
 import tempfile
 import threading
@@ -21,13 +24,20 @@ import time
 from pathlib import Path
 
 from fastapi import File, HTTPException, UploadFile
+from pydantic import BaseModel
 
+import bluesky
 import contextdev
 import reddit_html
 
 MAX_PAGE_BYTES = 15 * 1024 * 1024
 HISTORY = 25          # newest comments per commenter (B11: ~15; 25 for margin, 1 credit each either way)
 MAX_USERS = 150       # commenters whose history is fetched; the rest are analysed on their thread comments only
+BLUESKY_HISTORY = 30  # newest posts, replies and reposts per participant (1 request each)
+MAX_PARTICIPANTS = 150   # Bluesky participants whose history is fetched; the rest keep their thread posts only
+REDDIT_LINK = re.compile(r"^(?:https?://)?(?:[\w-]+\.)?(?:reddit\.com|redd\.it)(?:/|$)", re.I)
+COMMENT_FIELDS = ["comment_id", "username", "timestamp", "text", "links", "parent_id", "thread_id", "repost_of"]
+PROFILE_FIELDS = ["username", "created_at", "display_name", "bio", "followers", "following", "post_count", "default_avatar"]
 JOB_TTL = 3 * 3600
 JOBS_PER_HOUR = 20
 RUNNING_MAX = 2
@@ -78,36 +88,82 @@ def _write_csv(path, rows, fields):
         w.writerows(rows)
 
 
-def _run(job, thread, analyze, analysis_lock):
+class UrlJob(BaseModel):
+    url: str
+
+
+def _collect_reddit(job, client, thread):
+    """-> (comment rows, profile rows, label of the comments, label of the profiles, coverage warnings)"""
+    authors = thread["authors"][:MAX_USERS]
+    job["stage"] = f"Fetching the recent comments of {len(authors)} commenters"
+
+    def progress(done, total):
+        job["progress"] = {"done": done, "total": total}
+
+    histories = client.reddit_histories(authors, limit=HISTORY, on_progress=progress)
+    job["histories_ok"] = sum(1 for h in histories if h["status"] == "ok")
+    job["histories_failed"] = sum(1 for h in histories if h["status"] == "failed")
+    comments, profiles = contextdev.to_rows(histories, thread["comments"])
+    post = thread["post"] or {}
+    return (comments, profiles, f"{post.get('subreddit') or 'Reddit'} thread {post.get('id') or ''}".strip(),
+            f"recent comments of {job['histories_ok']} commenters (Context.dev)", [])
+
+
+def _collect_bluesky(job, client, url):
+    job["stage"] = "Reading the thread"
+
+    def on_thread(replies, people, fetched):
+        job["thread"].update(comments_found=replies, commenters=people, commenters_fetched=fetched)
+        job["progress"] = {"done": 0, "total": fetched}
+        job["stage"] = f"Fetching the recent posts and reposts of {fetched} participants"
+
+    def progress(done, total):
+        job["progress"] = {"done": done, "total": total}
+
+    data = bluesky.Bluesky(client).collect(url, history=BLUESKY_HISTORY, on_progress=progress, on_thread=on_thread,
+                                           max_participants=MAX_PARTICIPANTS)
+    t = data["thread"]
+    job["thread"] = {**t, "reposts": data["reposts"], "via": data["via"]}
+    job["histories_ok"], job["histories_failed"] = data["histories_ok"], data["histories_failed"]
+    notes = []
+    missing = (t["comments_expected"] or 0) - t["comments_found"]
+    if missing > 0:
+        notes.append(f"thread: Bluesky counts {t['comments_expected']} replies, {t['comments_found']} could be read; "
+                     f"the other {missing} are deleted, hidden or blocked")
+    if t["commenters"] > t["commenters_fetched"]:
+        notes.append(f"thread: {t['commenters']} participants, recent posts were fetched for the first {t['commenters_fetched']}; "
+                     "the others are judged on their posts in this thread only")
+    if data["histories_failed"]:
+        notes.append(f"thread: the recent posts of {data['histories_failed']} participants could not be fetched")
+    used = data["via"]
+    how = "Context.dev" if set(used) == {"context.dev"} else "directly from Bluesky" if set(used) == {"direct"} else \
+        f"Context.dev, {used.get('direct', 0)} of {sum(used.values())} requests directly from Bluesky"
+    return (data["comments"], data["profiles"], f"Bluesky thread by @{t['author']}",
+            f"recent posts and reposts of {data['histories_ok']} participants ({how})", notes)
+
+
+def _run(job, collect, analyze, analysis_lock):
     t0 = time.time()
     try:
         client = _client_or_error()
-        authors = thread["authors"][:MAX_USERS]
-        job["stage"] = f"Fetching the recent comments of {len(authors)} commenters"
-
-        def progress(done, total):
-            job["progress"] = {"done": done, "total": total}
-
         before = client.credits_used
-        histories = client.reddit_histories(authors, limit=HISTORY, on_progress=progress)
-        job["credits_used"] = client.credits_used - before
-        job["histories_ok"] = sum(1 for h in histories if h["status"] == "ok")
-        job["histories_failed"] = sum(1 for h in histories if h["status"] == "failed")
-
-        comments, profiles = contextdev.to_rows(histories, thread["comments"])
+        try:
+            comments, profiles, comments_label, profiles_label, notes = collect(job, client)
+        finally:
+            job["credits_used"] = client.credits_used - before
         job["status"], job["stage"] = "analysing", "Looking for accounts that act together"
         with tempfile.TemporaryDirectory(prefix="swarm-job-") as work:
             cpath, ppath = Path(work, "comments.csv"), Path(work, "profiles.csv")
-            _write_csv(cpath, comments, ["comment_id", "username", "timestamp", "text", "parent_id", "thread_id"])
-            _write_csv(ppath, profiles, ["username", "created_at"])
+            _write_csv(cpath, comments, [f for f in COMMENT_FIELDS if any(f in r for r in comments)])
+            _write_csv(ppath, profiles, [f for f in PROFILE_FIELDS if any(f in r for r in profiles)])
             with analysis_lock:
-                result = analyze(str(cpath), str(ppath))
-        post = thread["post"] or {}
-        result["source"]["comments_file"] = f"{post.get('subreddit') or 'Reddit'} thread {post.get('id') or ''}".strip()
-        result["source"]["profiles_file"] = f"recent comments of {job['histories_ok']} commenters (Context.dev)"
+                result = analyze(str(cpath), str(ppath) if profiles else None)
+        result["source"]["comments_file"] = comments_label
+        result["source"]["profiles_file"] = profiles_label
+        result["warnings"] = notes + list(result.get("warnings") or [])
         job["result"] = result
         job["status"], job["stage"] = "done", "Done"
-    except contextdev.ContextDevError as e:
+    except (contextdev.ContextDevError, bluesky.NotABlueskyPost) as e:
         job["status"], job["error"] = "failed", str(e)
     except Exception as e:  # the core's InputError and anything unexpected: show a short message, keep the server up
         job["status"], job["error"] = "failed", f"The analysis failed: {type(e).__name__}: {str(e)[:300]}"
@@ -115,7 +171,48 @@ def _run(job, thread, analyze, analysis_lock):
         job["seconds"] = round(time.time() - t0, 1)
 
 
+def _start(thread, total, collect, analyze, analysis_lock):
+    """Check the caps, register the job and start it. thread: what the page shows about the discussion."""
+    try:
+        _client_or_error()
+    except contextdev.ContextDevError as e:
+        raise HTTPException(503, str(e)) from None
+    with _lock:
+        if sum(1 for j in _jobs.values() if j["status"] in ("collecting", "analysing")) >= RUNNING_MAX:
+            raise HTTPException(429, "Two analyses are already running. Try again in a minute.")
+        if len(_started) >= JOBS_PER_HOUR:
+            raise HTTPException(429, f"This demo allows {JOBS_PER_HOUR} discussion analyses per hour. Try again later.")
+        _started.append(time.time())
+        job = {
+            "id": secrets.token_urlsafe(12), "created": time.time(), "status": "collecting",
+            "stage": "Starting", "progress": {"done": 0, "total": total}, "thread": thread,
+            "error": None, "credits_used": 0, "histories_ok": 0, "histories_failed": 0, "seconds": None, "result": None,
+        }
+        _jobs[job["id"]] = job
+    threading.Thread(target=_run, args=(job, collect, analyze, analysis_lock), daemon=True).start()
+    return _public(job)
+
+
 def register(app, analyze, analysis_lock):
+    @app.post("/api/jobs/url", status_code=202)
+    def start_url_job(body: UrlJob):
+        _cleanup()
+        url = body.url.strip()
+        if len(url) > 500 or any(c.isspace() for c in url):
+            raise HTTPException(400, "That does not look like a link.")
+        if REDDIT_LINK.match(url):
+            raise HTTPException(400, "Reddit shows its comments only to a browser, so a link is not enough: "
+                                     "save the thread page and use the Reddit card below.")
+        if not bluesky.is_bluesky(url):
+            if re.match(r"^(?:https?://)?(?:www\.)?bsky\.app(?:/|$)", url, re.I):
+                raise HTTPException(400, "Give the link of one Bluesky post: https://bsky.app/profile/NAME/post/ID.")
+            raise HTTPException(400, "This site is not supported yet (Bluesky post links and saved Reddit pages work now).")
+        if not url.lower().startswith("http"):
+            url = "https://" + url
+        thread = {"platform": "Bluesky", "url": url, "title": None, "comments_found": None, "comments_expected": None,
+                  "commenters": None, "history_per_commenter": BLUESKY_HISTORY}
+        return _start(thread, 0, lambda job, client: _collect_bluesky(job, client, url), analyze, analysis_lock)
+
     @app.post("/api/jobs/reddit", status_code=202)
     def start_reddit_job(page: UploadFile = File(...)):
         _cleanup()
@@ -123,34 +220,17 @@ def register(app, analyze, analysis_lock):
         if len(raw) > MAX_PAGE_BYTES:
             raise HTTPException(413, "The saved page is larger than 15 MB.")
         try:
-            thread = reddit_html.parse_thread(raw)
+            parsed = reddit_html.parse_thread(raw)
         except reddit_html.NotARedditThread as e:
             raise HTTPException(400, str(e)) from None
-        if not thread["authors"]:
+        if not parsed["authors"]:
             raise HTTPException(400, "No commenters found in the saved page. Scroll down so the comments load, then save again.")
-        try:
-            _client_or_error()
-        except contextdev.ContextDevError as e:
-            raise HTTPException(503, str(e)) from None
-        with _lock:
-            if sum(1 for j in _jobs.values() if j["status"] in ("collecting", "analysing")) >= RUNNING_MAX:
-                raise HTTPException(429, "Two analyses are already running. Try again in a minute.")
-            if len(_started) >= JOBS_PER_HOUR:
-                raise HTTPException(429, f"This demo allows {JOBS_PER_HOUR} thread analyses per hour. Try again later.")
-            _started.append(time.time())
-            post = thread["post"] or {}
-            job = {
-                "id": secrets.token_urlsafe(12), "created": time.time(), "status": "collecting",
-                "stage": "Starting", "progress": {"done": 0, "total": min(len(thread["authors"]), MAX_USERS)},
-                "thread": {"subreddit": post.get("subreddit"), "title": post.get("title"), "post_id": post.get("id"),
-                           "comments_found": thread["found"], "comments_expected": thread["expected"],
-                           "commenters": len(thread["authors"]), "history_per_commenter": HISTORY,
-                           "commenters_fetched": min(len(thread["authors"]), MAX_USERS)},
-                "error": None, "credits_used": 0, "histories_ok": 0, "histories_failed": 0, "seconds": None, "result": None,
-            }
-            _jobs[job["id"]] = job
-        threading.Thread(target=_run, args=(job, thread, analyze, analysis_lock), daemon=True).start()
-        return _public(job)
+        post = parsed["post"] or {}
+        fetched = min(len(parsed["authors"]), MAX_USERS)
+        thread = {"platform": "Reddit", "subreddit": post.get("subreddit"), "title": post.get("title"), "post_id": post.get("id"),
+                  "comments_found": parsed["found"], "comments_expected": parsed["expected"],
+                  "commenters": len(parsed["authors"]), "history_per_commenter": HISTORY, "commenters_fetched": fetched}
+        return _start(thread, fetched, lambda job, client: _collect_reddit(job, client, parsed), analyze, analysis_lock)
 
     def _get(job_id):
         _cleanup()
