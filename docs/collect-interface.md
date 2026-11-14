@@ -120,6 +120,14 @@ A JSON object, one per collected URL. The collector fills what it has; every fie
 
 - `role`: `thread` (the page the user gave), `more` (a further comment page of the same thread), `profile` (a commenter's page), `frame` (an embedded widget).
 - `parsed`: Context.dev's prebuilt parser output as it came, when one exists for the site; `null` otherwise.
+- `json` (added 14.11 evening for Bluesky and Hacker News): a site's public API response, **unchanged**, as a JSON value (not a string). The converter recognises it by its shape, so no site name is needed:
+
+  | Site | Page `role: "thread"` | Page `role: "profile"`, one per commenter (histories) |
+  |---|---|---|
+  | Bluesky | `app.bsky.feed.getPostThread` (the whole response, `{"thread": …}`; ask for `depth` 10 or more) | `app.bsky.feed.getAuthorFeed` (`{"feed": […]}`), reposts included; `app.bsky.actor.getProfiles` (`{"profiles": […]}`) for bio, join date and post count, as its own page |
+  | Hacker News | Algolia `items/{id}` (`{"id", "children": […]}`) | Algolia `search?tags=comment,author_NAME` (`{"hits": […]}`) |
+
+  Put Bluesky and Hacker News histories here, as `profile` pages, rather than in `histories[]`. The converter maps reposts, links in Bluesky facets, and HN's HTML comment text itself.
 - `histories[].status`: `ok`, `suspended`, `failed` (as in `frontend/api/contextdev.py`).
 - `coverage` feeds the page's honest "read N of M comments" line and should also reach the result's `warnings`.
 
