@@ -100,11 +100,15 @@ def detect(con, *, min_shared=MIN_SHARED, alpha=ALPHA, min_size=MIN_SIZE, pair_b
     fill = lambda sql: sql.replace("__WORDS__", _WORDS).replace("__MIN_WORDS__", str(int(MIN_WORDS)))
     con.execute(fill(_ITEMS_SQL))
     if similar_text:
-        con.execute(fill(_TEXT_NORM_SQL))
-        similar_warnings = similar.add_items(con)
-        warnings += similar_warnings
-        if similar_warnings:
-            skipped["similar_text"] = similar_warnings[0]
+        if "text" in skipped:
+            skipped["similar_text"] = skipped["text"]
+        else:
+            con.execute(fill(_TEXT_NORM_SQL))
+            reason, similar_warnings = similar.add_items(con)
+            warnings += similar_warnings
+            if reason:
+                skipped["similar_text"] = reason
+                warnings.append(f"similar_text skipped: {reason}")
     if con.execute("select count(*) from item").fetchall()[0][0] == 0:
         raise InputError("nothing to compare: needs comments with a text of at least "
                          f"{MIN_WORDS} words, links, repost_of or parent_id (columns text, links, repost_of, parent_id)")
@@ -162,7 +166,7 @@ def detect(con, *, min_shared=MIN_SHARED, alpha=ALPHA, min_size=MIN_SIZE, pair_b
         con.execute("insert into cluster select cluster, count(*), round(avg(copied_share), 9) from member group by cluster")
 
     signals = {}
-    for kind in KINDS + ((("similar_text",)) if similar_text else ()):
+    for kind in KINDS + (("similar_text",) if similar_text else ()):
         if kind in skipped:
             signals[kind] = {"status": "skipped", "reason": skipped[kind], "items": 0, "links": 0}
             continue

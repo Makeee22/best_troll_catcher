@@ -1,3 +1,4 @@
 -r requirements.txt
 pytest
 httpx
+model2vec  # for test_similar.py; the core itself does not need it

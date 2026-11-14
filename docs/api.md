@@ -81,14 +81,14 @@ Shortened: the example shows two of the three swarms and the `warnings` list is 
 |---|---|---|
 | `source.synthetic` | `true` when the data is simulated. | **Always show it**, e.g. a "synthetic data" badge. |
 | `parameters` | The settings of this run. | Show them next to the numbers. |
-| `signals` | One entry per kind of evidence: `used` or `skipped` (with a `reason`), how many shared items it found and how many account pairs it linked. | Show which signals ran. |
+| `signals` | One entry per kind of evidence (`text`, `link`, `repost`, `reply`, plus `similar_text` when requested): `used` or `skipped` (with a `reason`), how many shared items it found and how many account pairs it linked. | Show which signals ran. |
 | `warnings` | Plain sentences about the input, e.g. columns that were missing. | Show them; they explain weak results. |
 | `id` | Stable for the same set of accounts; safe to use in URLs. | |
 | `confidence` | 0 to 1: on average, the share of a member's own content that another member also has. Not a probability. See `docs/core-design.md`. | A bar or a number. |
 | `edge_count` | Number of linked account pairs (the true number, even when `edges` is cut). | |
 | `sample` | The most widely shared item of the cluster (same shape as one `top_items` entry below), or `null`. | A one-line preview. |
 
-`kind` is the signal that found the item: `text`, `link`, `repost` or `reply`.
+`kind` is the signal that found the item: `text`, `link`, `repost`, `reply`, or `similar_text` (only when the core ran with `--similar-text`; the item is then a group of reworded copies, shown as its earliest text).
 
 **Read this before building the list view:** a harmless automated feed that posts the same wire text is "coordinated" by this definition and can score higher than a real swarm (the first entry above is a synthetic news feed, confidence 1.0). The core cannot tell the two apart; this is listed in `docs/core-design.md` under "Known limits". Show `confidence` and the evidence, not a verdict.
 
@@ -175,7 +175,7 @@ python -m swarm COMMENTS [--profiles FILE] [--out FILE] [--min-confidence X] [--
 - Warnings go to standard error, one per line, starting with `warning: `.
 - Standard output is a short summary: one line per signal, the number of clusters, one line per cluster (id, size, confidence), and, with labels, precision, recall and false-positive rate at the cut. If the data is synthetic, the first line says so.
 - `--out FILE` writes the full result as JSON. That file is what `RESULT_FILE` expects, and its `clusters` list is what the API calls `swarms`.
-- `--similar-text` (optional, off by default) also links accounts that post reworded copies of the same text. It needs `pip install model2vec` and downloads a small model once. It is slower (about 40 s for 80,000 distinct texts) and limited to 100,000 distinct texts. It adds a `similar_text` entry to `signals`.
+- `--similar-text` (optional, off by default) also links accounts that post reworded copies of the same text. It needs `pip install model2vec` and downloads a small model once. It is slower (about 40 s for 80,000 distinct texts) and limited to 100,000 distinct texts. It adds a `similar_text` entry to `signals`. It is skipped, with a reason, when there are fewer than 2 distinct texts, more than 100,000, or too many near-duplicate pairs; groups of more than 200 similar texts are left out as generic.
 - A bad input ends with one line `error: <what to fix>` and exit code 2, never a traceback.
 - `python -m swarm.synthetic DIR` writes the synthetic sample (`comments.csv`, `profiles.csv`) into `DIR`.
 - `python -m swarm.cresci SOURCE_DIR OUT_DIR` converts the Cresci 2017 dataset (research use only, never committed) to the same two files.
