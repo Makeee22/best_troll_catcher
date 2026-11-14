@@ -67,7 +67,32 @@ def analyse(bundle, work_dir, *, similar_text=True):
     if profiles_path and thread.get("histories_ok"):
         result["source"]["profiles_file"] = f"recent posts of {thread['histories_ok']} participants"
     result["warnings"] = warnings + result["warnings"]    # warnings already hold the coverage notes
+    _explain_collection(result, bundle)
     return result
+
+
+PARTIAL_SHARE = 0.8   # reason partial_thread when fewer than this share of the comments the site counts could be read
+
+
+def _explain_collection(result, bundle):
+    """result.collection: what was read of the thread and whose history was fetched; adds the matching reasons."""
+    thread, coverage = bundle.get("thread") or {}, bundle.get("coverage") or {}
+    found, expected = coverage.get("comments_found"), coverage.get("comments_expected")
+    commenters, fetched = thread.get("commenters"), thread.get("commenters_fetched")
+    result["collection"] = {
+        "platform": thread.get("platform"), "comments_found": found, "comments_expected": expected,
+        "comments_hidden": thread.get("comments_hidden"), "commenters": commenters, "commenters_fetched": fetched,
+        "histories_ok": thread.get("histories_ok"), "histories_failed": thread.get("histories_failed"),
+        "history_per_commenter": thread.get("history_per_commenter"), "credits_used": bundle.get("credits_used")}
+    reasons = result.setdefault("diagnostics", {}).setdefault("reasons", [])
+    if found is not None and expected and found < PARTIAL_SHARE * expected:
+        reasons.insert(0, {"code": "partial_thread", "text":
+                           f"Only {found} of the {expected} comments the site counts could be read (the others are "
+                           "deleted, hidden, blocked or beyond what the site returns)."})
+    if commenters and fetched is not None and fetched < commenters:
+        reasons.insert(0, {"code": "capped_histories", "text":
+                           f"Other posts were fetched for {fetched} of {commenters} commenters; the rest are judged on "
+                           "this thread only."})
 
 
 def run(url, *, similar_text=True, **collect_options):

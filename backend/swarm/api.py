@@ -61,7 +61,8 @@ def list_swarms():
         for c in result["clusters"]
     ]
     return {"source": result["source"], "parameters": result["parameters"], "signals": result["signals"],
-            "warnings": result["warnings"], "swarms": swarms}
+            "warnings": result["warnings"], "diagnostics": result.get("diagnostics"), "collection": result.get("collection"),
+            "swarms": swarms}
 
 
 @app.get("/api/swarms/{swarm_id}")

@@ -181,6 +181,10 @@ def detect(con, *, min_shared=MIN_SHARED, alpha=ALPHA, min_size=MIN_SIZE, pair_b
     con.execute("""
         create or replace table thread_only as select username from comments group by username
         having count(thread_id) = count(*) and count(distinct thread_id) = 1""")
+    # the most widely shared items, before those replies go: "everyone answered the opening post" explains a quiet result
+    con.execute("""
+        create or replace table widest as select kind, key, count(*) as accounts, first(value order by value) as value
+        from item group by kind, key having count(*) >= 2 order by accounts desc, kind, key limit 5""")
     con.execute("delete from item where kind = 'reply' and username in (select username from thread_only)")
 
     con.execute("create or replace table df as select kind, key, count(*) as df from item group by kind, key")
@@ -239,6 +243,7 @@ def detect(con, *, min_shared=MIN_SHARED, alpha=ALPHA, min_size=MIN_SIZE, pair_b
         cut = con.execute("""
             select max(logp) from (select logp, row_number() over (order by logp) as k from pair where logp < 0)
             where logp <= ln(?) + ln(k) - ln(?)""", [alpha, m]).fetchall()[0][0]
+    con.execute("create or replace table chance_cut as select ?::DOUBLE as cut", [cut])   # for the diagnostics
     con.execute("create or replace table link (u1 VARCHAR, u2 VARCHAR, kind VARCHAR, shared BIGINT, created_together BOOLEAN)")
     if cut is not None:
         con.execute("insert into link select u1, u2, kind, c, together from pair where (c >= ? or long >= 1) and logp <= ?",

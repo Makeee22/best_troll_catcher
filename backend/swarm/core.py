@@ -2,6 +2,7 @@ import os
 from datetime import timedelta
 
 from . import detect as d
+from .diagnose import diagnostics
 from .evaluate import evaluate
 from .load import InputError, close, connect, load
 
@@ -154,6 +155,7 @@ def analyze(comments_path, profiles_path=None, *, min_confidence=MIN_CONFIDENCE,
                                             pair_budget=pair_budget, similar_text=similar_text,
                                             long_words=long_words, similar_model=similar_model, created_days=created_days,
                                             rate_cap=rate_cap)
+        clusters = _clusters(con, min_confidence, member_ratio)
         comments, accounts, synthetic = con.execute(
             "select count(*), count(distinct username), coalesce(bool_or(synthetic), false) from comments").fetchall()[0]
         return {
@@ -167,7 +169,9 @@ def analyze(comments_path, profiles_path=None, *, min_confidence=MIN_CONFIDENCE,
                            **({"ignored_accounts": ignored} if ignore_path is not None else {})},
             "signals": signals,
             "warnings": warnings + detect_warnings,
-            "clusters": _clusters(con, min_confidence, member_ratio),
+            "clusters": clusters,
+            "diagnostics": diagnostics(con, min_shared=min_shared, min_size=min_size, min_confidence=min_confidence,
+                                       listed=len(clusters)),
             "metrics": evaluate(con, min_confidence, member_ratio),
         }
     finally:
