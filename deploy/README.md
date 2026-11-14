@@ -1,51 +1,58 @@
 # Deploy to the Hostinger VPS
 
-Ubuntu with Docker. Two containers from the root `docker-compose.yml`: `web` (nginx on port 80: the page, and a proxy for `/api/` and `/health`) and `api` (port 8000, reachable only from `web`).
+Live at **https://swarm.srv2159299.hstgr.cloud** (VPS `srv2159299.hstgr.cloud`, Ubuntu, Docker).
 
-Not tested on the VPS yet: these steps were written without Docker at hand.
+Two containers from the root `docker-compose.yml`:
+- `web`: nginx with the page, and a proxy for `/api/` and `/health`
+- `api`: the backend's API (`backend/swarm`, unchanged) plus the upload endpoint of `frontend/api/app.py`. Reachable only from `web`.
+
+The VPS already runs **Traefik** (Hostinger's Docker setup in `/docker/traefik`). It owns ports 80 and 443 and routes each subdomain of `srv2159299.hstgr.cloud` to a container by its labels, with Let's Encrypt certificates and http → https redirect. `deploy/docker-compose.hostinger.yml` gives `web` those labels and drops its port 80, so **always pass both `-f` files on this server.** Other projects on the VPS live in `/docker/<name>`; leave them alone.
 
 ## First time
 
 ```bash
-ssh root@<server-ip>
-docker --version && docker compose version     # both must answer
-git clone https://github.com/Makeee22/best_troll_catcher.git
-cd best_troll_catcher
-git checkout makeee22/frontend                 # skip once the branch is merged to main
-docker compose up -d --build
-ufw allow 80/tcp                               # only matters if ufw is on: `ufw status`
-curl http://localhost/health                   # {"status":"ok"}
+ssh root@srv2159299.hstgr.cloud
+cd /docker
+git clone -b main https://github.com/Makeee22/best_troll_catcher.git spot-the-swarm   # makeee22/frontend until it is merged
+cd spot-the-swarm
+docker compose -p spot-the-swarm -f docker-compose.yml -f deploy/docker-compose.hostinger.yml up -d --build
+curl -s https://swarm.srv2159299.hstgr.cloud/health      # {"status":"ok"}
 ```
 
-Then open `http://<server-ip>/` in a browser, and once from a phone on mobile data. If it answers on the server but not from outside, check the firewall in the Hostinger panel (hPanel → VPS → Firewall) and allow TCP 80.
+The certificate is fetched on the first request; give it a few seconds. Then open the page once from a phone on mobile data.
 
 ## Update (plan branch B5: the SSH one-liner)
 
 ```bash
-ssh root@<server-ip> "cd best_troll_catcher && git pull && docker compose up -d --build"
+ssh root@srv2159299.hstgr.cloud "cd /docker/spot-the-swarm && git pull && docker compose -p spot-the-swarm -f docker-compose.yml -f deploy/docker-compose.hostinger.yml up -d --build"
 ```
 
-## Switch `api` from the mock to the real backend
+An update restarts `api`, so the page goes back to the synthetic sample (uploads live in memory only).
+
+## Use the backend on its own
+
+Once the backend has its own upload endpoint, or to serve one fixed result, add a third file:
 
 ```bash
-docker compose -f docker-compose.yml -f deploy/docker-compose.backend.yml up -d --build
+docker compose -p spot-the-swarm -f docker-compose.yml -f deploy/docker-compose.hostinger.yml -f deploy/docker-compose.backend.yml up -d --build
 ```
 
-Use the same two `-f` flags in the update command from then on. The real backend has no `POST /api/analyze` yet, so until it does the page shows the backend's own data and uploads give a clear message. Back to the mock: `docker compose up -d --build`.
+**Never put the Cresci 2017 data on the server:** it is research-only and holds real people's tweets.
 
 ## When something is wrong
 
 ```bash
-docker compose ps
-docker compose logs --tail=50 api
-docker compose logs --tail=50 web
-docker compose down && docker compose up -d --build
+cd /docker/spot-the-swarm
+docker compose -p spot-the-swarm ps
+docker compose -p spot-the-swarm logs --tail=50 api     # a bad RESULT_FILE / COMMENTS_FILE stops api with one message
+docker compose -p spot-the-swarm logs --tail=50 web
+docker logs --tail=50 traefik-traefik-1                 # routing or certificate problems
 ```
 
-- Port 80 taken: `ss -ltnp | grep :80` shows by what (often a preinstalled apache2 or nginx: `systemctl disable --now apache2`).
-- The upload limit is 20 MB in two places that must agree: `MAX_BYTES` in `frontend/mock/app.py` and `client_max_body_size` in `frontend/nginx.conf`.
-- The mock keeps the uploaded data in memory: a restart returns to the synthetic sample.
+- 404 from Traefik: the `web` container is not running or lost its labels (was it started without the hostinger file?).
+- The upload limit is 20 MB for both files together, in two places that must agree: `MAX_BYTES` in `frontend/api/app.py` and `client_max_body_size` in `frontend/nginx.conf`.
+- One result in memory, shared by every visitor: an upload replaces it for everybody until the next upload or restart.
 
-## Later, optional: HTTPS
+## Anywhere else
 
-Point the free domain's A record at the server, then either put Caddy in front (it fetches certificates by itself) or add certbot to the nginx container, and open port 443. Not needed for the demo link to work.
+On a machine without Traefik, `docker compose up -d --build` alone serves the page on port 80.

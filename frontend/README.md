@@ -1,99 +1,53 @@
 # Front end
 
-The dashboard for **Spot the swarm**: upload a CSV of posts, get back the groups of accounts ("swarms") that repeatedly post the same content within seconds of each other, with the evidence and the measured precision and false-positive rate.
+The dashboard for **Spot the swarm**: upload a comments CSV (and optionally a profiles CSV), get back the groups of accounts that share content more often than chance predicts, each with a confidence, the evidence, and, when the profiles carry labels, the measured precision and false-positive rate.
 
 | Path | What |
 |---|---|
 | `site/` | The page: static HTML, CSS and plain JavaScript. No build step. (Plan branch B4: **static page**, served by nginx.) |
-| `nginx.conf`, `Dockerfile` | nginx serves `site/` and proxies `/api/` and `/health` to the API, so the browser sees one origin. |
-| `mock/` | A **mock API**, see below. |
-| `mock/samples/` | Example CSV files. Both are **synthetic**. |
+| `nginx.conf`, `Dockerfile` | nginx serves `site/` and `samples/`, and proxies `/api/` and `/health` to the API, so the browser sees one origin. |
+| `api/` | The backend's API plus an upload endpoint, see below. |
+| `samples/` | The synthetic sample from `python -m swarm.synthetic` (`synthetic_comments.csv`, `synthetic_profiles.csv`). Every row is marked synthetic. |
 
-The page shows a "SYNTHETIC DATA" badge whenever the API says `source.synthetic: true`.
+The page builds against `docs/api.md`. It shows a "SYNTHETIC DATA" badge whenever `source.synthetic` is true, the input warnings and which signals ran, each swarm's confidence and evidence, and the metrics at every confidence cut, with the note that the cut was chosen with the labels visible.
 
-## The mock API (`mock/`)
+## The API (`api/`)
 
-**This is a stand-in, not the real backend.** The real API belongs to the backend owner (Arde1001) and its contract is `docs/api.md`.
+`api/app.py` is **not a mock**. It imports `backend/swarm/api.py` unchanged, so every `GET` endpoint is the backend's own, and adds one endpoint the backend does not have yet (it is part 2 in `docs/core-design.md`):
 
-- It serves the four `GET` endpoints of `docs/api.md` with the same JSON shapes.
-- It adds one **proposed** endpoint, `POST /api/analyze` (CSV upload), described at the end of this file.
-- The detection is not faked: it imports `backend/swarm/detect.py` read-only, so results match the real backend. `verdict` is always `null`.
-- At start it holds the synthetic sample from `backend/swarm/synthetic.py`.
-- **One dataset in memory, shared by everybody.** An upload replaces it for all visitors; a restart returns to the synthetic sample. Nothing is written to disk. Fine for a demo, not for several users at once.
+**`POST /api/analyze`**: `multipart/form-data` with a part `comments` (CSV, required) and optionally `profiles` (CSV), in the format of `docs/api.md`, "Input files".
 
-## CSV format
-
-UTF-8, first line is the header, one row per post. Separator comma (semicolon is accepted too). Quote text that contains the separator. Limits: 20 MB, 200 000 rows. The columns mirror "Input data format" in `docs/api.md`.
-
-| Column | Required | Meaning |
-|---|---|---|
-| `id` | yes | Unique per post. |
-| `account` | yes | The author's stable id or handle. |
-| `timestamp` | yes | ISO 8601, e.g. `2026-11-01T10:00:00Z`. Without an offset it is read as UTC. |
-| `text` | yes (cell may be empty) | The post text. Links inside it are found automatically. |
-| `links` | no | URLs separated by a space or `\|`. |
-| `repost_of` | no | Id of the reposted post. |
-| `coordinated` | no | `true` / `false`: the known label. Needed for the metrics. Empty = unknown. |
-| `synthetic` | no | `true` for simulated posts. Any `true` row turns the badge on. |
-
-`true`/`false` may also be written `1`/`0` or `yes`/`no`. Extra columns are ignored.
-
-```csv
-id,account,timestamp,text,links,repost_of,coordinated,synthetic
-2,sock_a,2026-11-01T09:00:05Z,The new harbour plan will ruin this city for everyone,,,true,true
-3,sock_b,2026-11-01T09:00:12Z,The new harbour plan will ruin this city for everyone,,,true,true
-6,anna,2026-11-01T10:30:00Z,Breaking: bridge closed after storm https://news.example/bridge,https://news.example/bridge,,false,true
+```bash
+curl -F comments=@comments.csv -F profiles=@profiles.csv http://localhost:8000/api/analyze
 ```
 
-Samples: `mock/samples/tiny_synthetic_example.csv` (20 hand-written rows, one swarm of 3) and `mock/samples/synthetic_sample.csv` (4413 rows; recreate with `python mock/make_sample.py`).
+- `200`: the same body as `GET /api/swarms` for the uploaded data. It runs `swarm.core.analyze()`, so the result is exactly what the backend's command line gives. The upload becomes the current result: `/api/swarms/{id}` and `/api/metrics` answer for it.
+- `400 {"detail": ...}`: the core's own `InputError` message (no `username` column, nothing to compare, …), with the server's temp path replaced by the file name.
+- `413`: the files are over 20 MB together. `422`: no `comments` part.
+
+**One result in memory, shared by everybody.** An upload replaces it for all visitors; a restart returns to what `swarm.api` loads at startup (the synthetic sample). Analyses run one at a time. Nothing is kept on disk.
+
+`api/requirements.txt` adds `python-multipart` and, as a stopgap, `numpy`: `backend/swarm/similar.py` imports numpy at module level but `backend/requirements.txt` does not list it (commit `bfaac31`), so the backend image cannot start without it. Remove the line when the backend fixes it.
+
+When the backend gets its own upload endpoint, switch with `deploy/docker-compose.backend.yml` and delete `api/`.
 
 ## Run locally
 
-Without Docker (Python 3.12+), from `frontend/mock/`:
+Without Docker (Python 3.12+), from `frontend/api/`:
 
 ```bash
 python -m venv .venv
-.venv/bin/pip install -r requirements.txt        # Windows: .venv\Scripts\pip
-.venv/bin/uvicorn app:app --reload --port 8000   # Windows: .venv\Scripts\uvicorn
+.venv/bin/pip install -r ../../backend/requirements.txt -r requirements.txt   # Windows: .venv\Scripts\pip
+.venv/bin/uvicorn app:app --reload --port 8000                                # Windows: .venv\Scripts\uvicorn
 ```
 
-Open <http://localhost:8000/>. Run this way, the mock also serves the page and the samples, so nothing else is needed.
+Open <http://localhost:8000/>. Run this way, the API also serves the page and the samples.
 
-With Docker, from the repo root:
+With Docker, from the repo root: `docker compose up --build` (page on <http://localhost/>).
 
-```bash
-docker compose up --build        # page on http://localhost/
-```
+To point the page at another API: edit `site/config.js`, or add `?api=http://host:8000` to the page URL (that API must allow the page's origin; the backend allows any origin for `GET`).
 
-To point the page at another API: edit `site/config.js`, or add `?api=http://host:8000` to the page URL.
+## Data rules
 
-The explanation of "flagged" on the page quotes the thresholds in `backend/swarm/detect.py` (60 seconds, 3 occasions, 3 accounts). If the data owner changes them, update the sentence in `site/index.html`.
-
-## Proposal for the backend: `POST /api/analyze`
-
-For Arde1001. This is what the page calls and what the mock does; change what you like and write the final version into `docs/api.md`.
-
-**Request:** `multipart/form-data` with one part named `file`: a CSV in the format above.
-
-```bash
-curl -F "file=@posts.csv" http://localhost:8000/api/analyze
-```
-
-**Response `200`:** exactly the body of `GET /api/swarms` for the uploaded data. `source.name` is the uploaded file name; `source.synthetic` is `true` if any row has `synthetic=true`.
-
-**Effect:** the uploaded data becomes the current dataset, so `GET /api/swarms`, `GET /api/swarms/{id}` and `GET /api/metrics` answer for it from then on. `metrics` is `null` when no row has a `coordinated` value.
-
-**Errors:** JSON `{"detail": "message for the user"}`; the page shows `detail` as it is.
-
-| Status | When |
-|---|---|
-| `400` | Empty file; not UTF-8; a required column is missing; an `id`, `account` or `timestamp` cell is empty; a timestamp is not ISO 8601; an id appears twice; `coordinated` or `synthetic` is not true/false; a row has more values than the header. Row errors name the line. |
-| `413` | File over 20 MB, or more than 200 000 rows. |
-| `422` | No `file` part (FastAPI's default). |
-
-**Also needed:** CORS has to allow `POST` (now only `GET`), and the `python-multipart` package.
-
-**Open questions for you:**
-- One shared dataset is the simplest thing, but two people uploading at once overwrite each other. A dataset id in the response (`/api/swarms?dataset=…`) would fix it if there is time.
-- On the public URL anybody can upload. The size limits keep one request cheap; say if you want it locked down more.
-- The CSV parsing is in `frontend/mock/app.py` (`parse_csv`), about 60 lines: take it as it is if it helps.
+- The samples here are synthetic. Never add real data to this folder: the repo is public.
+- **Never upload the Cresci 2017 data to the live site.** It is research-only and holds real people's tweets; the result would be shown to every visitor.

@@ -146,10 +146,11 @@ Each role edits only its own block.
 - For TheSnowman99: the parameters to tune are in the design under "Parameters". Cresci 2017 is on Arde1001's machine only; `data/README.md` should say where it comes from (http://mib.projects.iit.cnr.it) and that its licence allows research use only.
 
 ### Front end + infrastructure
-- Done (on branch `makeee22/frontend`, not merged): dashboard in `frontend/site/` (CSV upload, flagged accounts by swarm, swarm evidence, metrics, "synthetic data" badge); mock API in `frontend/mock/` that reuses `backend/swarm/detect.py`; `docker-compose.yml` (nginx `web` + `api`); `deploy/README.md`.
+- Done (branch `makeee22/frontend`): **live at https://swarm.srv2159299.hstgr.cloud** (VPS behind Hostinger's Traefik, Let's Encrypt HTTPS; `deploy/README.md`). Dashboard in `frontend/site/` on the new `docs/api.md`: upload of comments + optional profiles CSV, confidence, signals and warnings, evidence per swarm, metrics at every cut with the "cut chosen with labels visible" note, synthetic badge. `frontend/api/` = the backend's `swarm.api` unchanged + `POST /api/analyze` running `swarm.core.analyze()`.
 - B4 choice: **static page**, no build step, served by nginx, which also proxies `/api/` to the API container. The table above still says OPEN: for the keeper to mark.
-- Doing: first deploy to the VPS. The page and the mock are tested locally without Docker; the Docker images and compose file are **not built or tested yet**.
-- Blocked: nothing hard. For Arde1001: the page needs a new endpoint, `POST /api/analyze` (CSV upload); the proposal is at the end of `frontend/README.md`. Until the backend has it, the live site runs the mock; switching is one command (`deploy/README.md`).
+- Doing: merging `makeee22/frontend` to `main`.
+- For Arde1001: `backend/swarm/similar.py` imports numpy at module level but `requirements.txt` does not list it (commit `bfaac31`), so `backend/Dockerfile` builds an image that exits on start. `frontend/api/requirements.txt` adds numpy as a stopgap. When the backend has its own upload endpoint, `frontend/api/` can go (`deploy/docker-compose.backend.yml`).
+- Blocked: nothing.
 
 ### Presentation + documentation
 - Done:
