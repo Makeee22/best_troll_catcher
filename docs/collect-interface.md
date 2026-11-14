@@ -124,15 +124,30 @@ A JSON object, one per collected URL. The collector fills what it has; every fie
 
 The converter can rely on: UTF-8 strings; times in ISO 8601 UTC; usernames as the site shows them; no API keys or cookies anywhere in the bundle.
 
-## Status on 14.11 at 16:00
+## Status on 14.11 at 17:30
 
 | Site | Thread comments | Commenters' histories | Notes |
 |---|---|---|---|
 | Reddit | Only from a page saved in the browser (~25 comments; the rest behind "load more"). Context.dev's `reddit-post` parser returns an empty comment list (reported to Context.dev). | Yes: `reddit-user` parser, 25 newest comments, about 1 credit and 0.4 s each | Live on the site as "Analyse a Reddit thread" |
 | X / Twitter | 3 replies, then a login wall | 5–6 posts, then a login wall | Not usable without logging in |
-| **Bluesky** | **Yes, complete:** the public API `app.bsky.feed.getPostThread` (no login) returned all 157 replies from 141 authors of a 142-reply post, nested replies included. Works through Context.dev (`web-scrape`, the JSON comes back inside the Markdown) and directly. | **Yes:** public `app.bsky.feed.getAuthorFeed` (posts, replies and reposts, with the author's `createdAt`); `app.bsky.actor.getProfiles` for bio and counts, 25 accounts per call | **Collector being built now** (front end). The user pastes a `bsky.app/profile/…/post/…` link. The best stand-in for X. |
+| **Bluesky** | **Yes, complete:** the public API `app.bsky.feed.getPostThread` (no login, depth 1000) gives every public reply, nested ones included. Replies that are deleted, hidden or blocked are missing; the sum of Bluesky's own `replyCount` over the posts we read says how many there should be. | **Yes:** public `app.bsky.feed.getAuthorFeed` (newest 30 posts, replies and reposts per participant, one request each); `app.bsky.actor.getProfiles` for creation date, bio and counts, 25 accounts per call | **Done: `frontend/api/bluesky.py`, on the site as "Analyse a discussion from a link"** (`POST /api/jobs/url`). Every request goes through Context.dev (`web-scrape` with `formats.bytes`, the untouched response body; about 1 credit each) with a direct request to the same public endpoint as fallback when Context.dev does not answer in 10 s. Measured 14.11 with 2 requests at a time: 43 replies from 38 participants in 17–100 s for 42 credits; 158 replies from 143 participants in 333 s for 147 credits (Context.dev took 1.5–5 s per request then); the core ran all four signals on 4,209 rows in 1.4 s. |
 | **Hacker News** | **Yes, complete:** the public Algolia API `hn.algolia.com/api/v1/items/{id}` returned all 1,124 comments from 717 commenters of one story, with `parent_id` and times | Yes: Algolia search by author (`tags=comment,author_NAME`) | Collector next, after Bluesky |
 | Others | Not tested yet | | |
+
+### Bluesky: how the collector maps to the raw bundle
+
+`bluesky.Bluesky(client).collect(post_url)` returns the bundle's content already as rows, because the page needs a result today. **This interim row conversion lives in `frontend/api/bluesky.py` (`_post_row`, the repost rows and the profile rows in `collect`) until the backend's converter takes over**; it then moves to the convert half like the Reddit ones.
+
+| Raw bundle | Bluesky source | Row conversion today |
+|---|---|---|
+| `url`, `site: "bluesky"` | the `bsky.app/profile/NAME/post/ID` link; the handle is resolved with `com.atproto.identity.resolveHandle` | `thread.url`, `thread.post_id` (the `at://` URI) |
+| `pages[0]` (`role: thread`) | `getPostThread` JSON | one comment row per post: `comment_id` = the post's `at://` URI, `username` = handle (the DID when the handle is `handle.invalid`), `timestamp` = `record.createdAt`, `text`, `links` (link facets and the external embed), `parent_id` and `thread_id` from `record.reply` |
+| `histories[].items` | `getAuthorFeed` (`filter=posts_with_replies`) per participant | the participant's own posts and replies as comment rows; a **repost** becomes a row with empty text and `repost_of` = the reposted post's URI (id `repost:HANDLE:URI`, time = when it was reposted), which feeds the core's `repost` signal |
+| `histories[].created_at` and profile data | `getProfiles` | `profiles.csv`: `username`, `created_at`, `display_name`, `bio`, `followers`, `following`, `post_count`, `default_avatar` |
+| `coverage` | counts from the thread | `thread.comments_found`, `comments_expected` (sum of `replyCount`), `comments_hidden` (blocked or removed nodes), `commenters`, `commenters_fetched` (cap: 150 on the site), and notes at the top of the result's `warnings` |
+| `credits_used` | Context.dev's `key_metadata` | the job's `credits_used`; `thread.via` counts requests through Context.dev and direct ones |
+
+Not collected: likes, quote posts as their own signal, more than the newest 30 items per participant, followers lists.
 
 ### For the converter: do not trust Context.dev's model-based extraction for counts or structure
 

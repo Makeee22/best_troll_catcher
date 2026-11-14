@@ -166,7 +166,8 @@ Each role keeps its own block.
 ### Front end + infrastructure
 - Done (branch `makeee22/frontend`): **live at https://swarm.srv2159299.hstgr.cloud** (VPS behind Hostinger's Traefik, Let's Encrypt HTTPS; `deploy/README.md`). Dashboard in `frontend/site/` on the new `docs/api.md`: upload of comments + optional profiles CSV, confidence, signals and warnings, evidence per swarm, metrics at every cut with the "cut chosen with labels visible" note, synthetic badge. `frontend/api/` = the backend's `swarm.api` unchanged + `POST /api/analyze` running `swarm.core.analyze()`.
 - B4 choice: **static page**, no build step, served by nginx, which also proxies `/api/` to the API container. The table above still says OPEN: for the keeper to mark.
-- Doing: merging `makeee22/frontend` to `main`.
+- Done 14.11: discussion analysis as private background jobs (`frontend/api/jobs.py`: random id, `#job=` link, 3 h in memory, 20 jobs/hour, 2 at a time, 150 participants). **Bluesky from a link** (`POST /api/jobs/url`, `frontend/api/bluesky.py`): the whole thread plus each participant's newest 30 posts, replies and reposts and profiles, through Context.dev with a direct fallback; all four signals run (text, link, repost, reply). **Reddit from a saved page** (`POST /api/jobs/reddit`). Who collects and who converts: `docs/collect-interface.md`.
+- Doing: nothing running. Next candidate: a Hacker News collector (`docs/collect-interface.md`). Not deployed yet: the Bluesky link card is tested on the VPS as a separate project, the live site still has the earlier build.
 - For Arde1001: the numpy start-up crash is fixed in `a0893fd`/`54664a6` (tested on the VPS); the stopgap in `frontend/api/` is gone. When the backend has its own upload endpoint, `frontend/api/` can go (`deploy/docker-compose.backend.yml`).
 - Blocked: nothing.
 
