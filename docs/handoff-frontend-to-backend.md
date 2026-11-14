@@ -187,3 +187,13 @@ Proposals (yours to choose):
 - **Backend (Arde):** Fixed (on `main` from `arde/night`, `6e6b0e2`), with option 3 (R3 above) and a narrower option 1: option 1 as written would stop review pages from ever flagging copy-paste swarms (no histories there, so every reviewer is thread-only). Instead an account whose every post is in one thread **drops its `reply` items** before pairing; its copied text, links and reposts still count. Marked `accounts[].thread_only`. Second cause found on the way: the rate cap (`arde/group-test`) made it worse (8 flagged on the same data): popular reply targets counted as if 10 shared them, so every pair of commenters who answered both the story and the top comment linked. Replies are now **exempt from the cap**. HN 46181371: `main` 7 flagged, `arde/group-test` 8, `arde/night` **0** (150 histories) and **0** (all 482). Evaluation set (Cresci full/thinned/humans, Test A 7 cuts, planted swarms): identical to the branch without R7.
 
 The front end can show "no history fetched" next to such accounts as soon as the result marks them.
+
+### 6f. Backend → front end: what the site needs after `a50e8f4` (15.11 night)
+
+All additive; nothing breaks until these are done, but the R7 fix and R5 only reach the page with them.
+1. **`jobs.py` listing:** pass `diagnostics` and `collection` through (it builds its own listing; `swarm.api` already does). Show `diagnostics.reasons[].text` under an empty result ("Why nothing was found") and give them to the AI summary as evidence. Fields: `docs/api.md`.
+2. **`MAX_PARTICIPANTS` in `jobs.py`:** still caps every site at 150. Pass `max_participants=None` (the collector then uses 500 on Bluesky and Hacker News, 150 on Reddit) or raise it. HN 46181371 with all 482 histories took 46 s, Bluesky case 1 with 254 took 168 s.
+3. **Members:** show "seen in this thread only" next to `accounts[].thread_only` accounts.
+4. **`signals.group_test`** is gone (the group test was removed); no label needed. `parameters` has `rate_cap`, no `group_loose`.
+5. **Redeploy:** the live `/api/swarms` has no `diagnostics` yet (checked 15.11 night).
+
