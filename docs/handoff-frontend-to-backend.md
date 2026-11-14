@@ -106,3 +106,47 @@ Already done on the site, for the record: member flags shown and used in the exp
 
 **S7 (14.11 night): the product is a monitoring tool; please say so on the page.** Team decision (`PLAN.md` B15): the backend now favours finding more of each botnet over never flagging a real person, so the false-positive rate will rise somewhat. The page must be honest about it, next to the flagged accounts and in the AI explanation: "Flagged accounts are worth watching, not proven bots. Some of them are real people. Use this to monitor accounts, never to ban or restrict them." Keep showing the measured false-positive rate where labels exist. The README says the same.
 - **Front end (Makeee22):** Done (14.11 ~23:45): the sentence stands as a note under "Flagged accounts" and in the private-result banner; both AI explanations (one swarm, whole result) are told to say it once and never to suggest bans, suspensions or restrictions. The measured false-positive rate is still shown where labels exist.
+
+## 6. Front end → backend: why real threads give 0 swarms (14.11 night)
+
+From Makeee22 to Arde1001. The user keeps pointing the site at threads that *look* botted and gets 0 swarms every time. Below are four cases, run through `swarm.collect` / the core of `main` (similar-text on), with what the raw data shows. Aggregates only. **Please answer under each request (R1…R6) with `**Backend (Arde):** …`**: what the backend can do, what it cannot, and what we should say instead.
+
+### 6a. The four cases
+
+**Case 1. Bluesky political thread** (`bsky.app/profile/xelahart.bsky.social/post/3n2bmeer5es2t`, 14.11.2026, US politics, heated). 138 credits, 4,426 comments from 248 accounts, every signal used, **0 links in every signal, 0 clusters**.
+- **Coverage:** Bluesky counts 817 replies; **289 could be read** (528 "deleted, hidden or blocked" according to the note). 254 participants; histories for the first 150 only, so **97 of the 243 repliers have no history** at all.
+- **What is in it:** 0 identical reply texts between accounts; median reply 13 words. The replies that read like trolling (insults with a repeated slur-like tag) all come from **one** account (6 replies, created Nov 2024, 22 history posts in the same tone): a lone account, out of scope by design. Phrases shared by 4–6 accounts are echoes of the post itself.
+- **Raw overlap the test throws away:** 369 items shared by 2+ accounts (222 replied-to posts, 147 reposts); **321 account pairs share 2+ items, 94 share 3+**, yet 0 links. These are the popular posts of one heated thread (one sub-reply has 18 repliers), so the chance test rightly calls them common. Likely the honest answer is "no coordination", but the user cannot see why.
+- **Creation dates:** 131 of 243 repliers were created in Nov 2024 (Bluesky's sign-up wave after the US election), so `created_together` cannot mean much on Bluesky for that month.
+
+**Case 2. Reddit crypto "shill" thread** (r/CryptoMoonShots, a coin launch post, 16.12.2024). 23 credits, 347 comments, 23 accounts, 0 clusters.
+- 22 replies within 90 minutes of the post, all praise in the same few themes (community, dev team, still early, price target). A human reads it as a raid or paid shilling.
+- **Each account wrote its own sentence:** 0 identical texts; similar-text cosine between the 18 replies: median 0.19, **max 0.60** against the cut 0.90.
+- **History is the wrong time:** the thread is from Dec 2024, the 25 newest comments per account are from 2025–2026; only 3 accounts had any comment from Nov 2024–Jan 2025. Whatever else they shilled together then is out of reach.
+- Reddit link: 22 of 104 comments read ("load more").
+
+**Case 3. FiveThirtyEight IRA troll tweets, a sample** (`venalaiset_trollitwiitit_otos.csv`: 4,831 tweets, 216 IRA accounts, Jan–Sep 2017; converted to the standard format, retweets as `repost_of` rows with empty text, like the Bluesky converter). 0 clusters; text 5 links, link 4, repost 1, similar-text 3.
+- **A random sample destroys the overlap:** median **6 tweets per account over 9 months**; only 55 of 5,726 items are shared by 2+ accounts, none by more than 3; 9 pairs share 2+ items.
+- All accounts are trolls, so recall only (no humans for false positives). Converter: `tools/ira_to_csv.py` on Makeee22's machine (outside the repo); data in `data/raw/russian-trolls/` (ignored). Source and licence still need a line in `data/README.md` (TheSnowman99).
+
+**Case 4. "Russian bots in a YouTube comment section".** Not a supported site. A CSV export would work, but YouTube shows no commenter history, so only in-thread signals run, and each bot posting once gives at most one shared item per pair.
+
+### 6b. The pattern
+
+The core finds **copy-paste and amplification swarms** (same text, link, repost or reply target, repeated). What the user brings are mostly (1) **raids in own words**, (2) **old threads** whose coordination is outside the newest-N history, (3) **lone loud accounts**, and (4) **partial threads** (Bluesky 289/817, Reddit ~25/100+, 150-history cap). The result page says "0 swarms" and nothing about which of these applied.
+
+### 6c. Requests to the backend
+
+**R1. Bluesky coverage: 289 of 817.** Is the gap really deleted/hidden/blocked posts, or a limit of `getPostThread` (depth, branching, replies the AppView leaves out)? If it is a limit, can the collector page through it (e.g. fetch deeper sub-threads, or `searchPosts` for replies to the root)?
+
+**R2. History around the thread's date, not the newest N.** For an old thread the newest posts say nothing. Bluesky `getAuthorFeed` has a cursor, Hacker News Algolia has `numericFilters=created_at_i`; can the collector fetch each participant's posts from the thread's date ±N days (Reddit: whatever Context.dev's `reddit-user` parser allows)?
+
+**R3. Which participants get a history when there are more than 150?** Today the first 150. Proposal: the accounts with most replies in the thread, then the youngest accounts, then the rest; or raise the cap for Bluesky/HN, which cost no Context.dev credits for histories (are they fetched through Context.dev now? Case 1 used 138 credits).
+
+**R4. A "same-thread burst" signal for raids in own words (research question, not tonight).** Many accounts replying to one post within a short window with the same stance, and the *same set of accounts* doing it again in another thread. Only the second part is evidence of coordination; the first alone is every popular post. Is this testable on the data we have (Test R's networks, Fox8), and with what false-positive check?
+
+**R5. Explain a 0-swarm result.** Can the result carry the numbers that say *why* nothing was found, so the page and the AI summary can show them: coverage (read/expected replies, participants with history), pairs that shared 2+ items but failed the chance test, the largest shared item, and the share of the history that falls in the thread's time window? Case 1 would then read: "321 pairs shared 2+ items, all of them popular posts in this thread; 97 repliers had no history".
+
+**R6. A converter for the IRA tweets** (`swarm/ira.py`, like `cresci.py`) and a **time-window slice** (all tweets of one week or month from the full FiveThirtyEight files, not a random sample), so we can measure recall on real troll networks. Is it worth doing before submission, or after?
+
+The front end will show whatever R5 returns on the page and pass it to the AI summary as evidence.
