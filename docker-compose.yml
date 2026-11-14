@@ -1,10 +1,10 @@
-# The live site: http://<server>/  (deploy steps: deploy/README.md)
+# The live site (deploy steps: deploy/README.md)
 #
 #   web  nginx: the static dashboard, and a proxy for /api/ and /health -> api:8000
-#   api  right now the MOCK in frontend/mock (real detection code, plus CSV upload)
+#   api  the backend's API (backend/swarm, unchanged) plus the upload endpoint in frontend/api/app.py
 #
-# To run the real backend/ instead of the mock:
-#   docker compose -f docker-compose.yml -f deploy/docker-compose.backend.yml up -d --build
+# Local or a bare server:      docker compose up -d --build                (page on port 80)
+# The Hostinger VPS (Traefik): add  -f deploy/docker-compose.hostinger.yml (see deploy/README.md)
 services:
   web:
     build: ./frontend
@@ -16,8 +16,8 @@ services:
 
   api:
     build:
-      context: .                          # repo root: the mock copies backend/swarm in
-      dockerfile: frontend/mock/Dockerfile
+      context: .                          # repo root: the image copies backend/swarm in
+      dockerfile: frontend/api/Dockerfile
     expose:
       - "8000"
     restart: unless-stopped
