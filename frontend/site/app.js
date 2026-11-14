@@ -492,8 +492,10 @@ function bannerLines(job) {
   return [
     h("p", null, h("strong", null, "Reddit thread: "), (t.subreddit || "") + " · “" + (t.title || "") + "”"),
     h("p", { class: "muted" },
-      "Read " + t.comments_found + (t.comments_expected != null ? " of " + t.comments_expected : "") + " comments from the saved page" +
-      (missing ? " (the rest were behind “load more” when the page was saved)" : "") + ". Fetched the newest " +
+      "Read " + t.comments_found + (t.comments_expected != null ? " of " + t.comments_expected : "") +
+      (t.url ? " comments from the thread link" : " comments from the saved page") +
+      (missing ? (t.url ? " (the rest are behind “load more”: save the page after loading more to include them)"
+                        : " (the rest were behind “load more” when the page was saved)") : "") + ". Fetched the newest " +
       t.history_per_commenter + " comments of " + job.histories_ok + " commenters with Context.dev" + failed + cost),
   ];
 }
@@ -530,7 +532,8 @@ async function pollJob(id) {
       return jobError(e.status === 404 ? "This analysis no longer exists: results are deleted after 3 hours." : e.message);
     }
     if (token !== loadToken) return; // the user started something else
-    const card = (job.thread || {}).platform === "Reddit" ? "reddit" : "url";
+    const t = job.thread || {};
+    const card = t.platform === "Reddit" && !t.url ? "reddit" : "url";   // a Reddit job from a link has thread.url
     if (card !== jobCard) { jobStatus(); jobCard = card; }
     const p = job.progress || {};
     if (job.status === "collecting" || job.status === "analysing") {

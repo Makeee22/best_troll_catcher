@@ -20,25 +20,26 @@
   <section class="card" aria-labelledby="url-h">
     <h2 id="url-h">Analyse a discussion from a link</h2>
     <form id="url-form" class="link-form" novalidate>
-      <label for="url-input"><strong>Link to a post</strong> <span class="muted">(Bluesky works now)</span></label>
+      <label for="url-input"><strong>Link to a post or thread</strong> <span class="muted">(Bluesky and Reddit work now)</span></label>
       <div class="link-row">
         <input id="url-input" type="url" inputmode="url" autocomplete="off" spellcheck="false"
-               placeholder="https://bsky.app/profile/name/post/…">
+               placeholder="https://bsky.app/profile/name/post/…  or  https://www.reddit.com/r/name/comments/…">
         <button id="url-start" type="submit" class="primary">Analyse the discussion</button>
       </div>
     </form>
     <div id="url-status" class="muted progress-line" role="status"></div>
     <div id="url-error" class="error" role="alert" hidden></div>
-    <p class="muted">Paste the link of a <strong>Bluesky</strong> post. We read the whole thread under it and every participant's
-      newest public posts, replies and reposts through <strong>Context.dev</strong>, then look for accounts that act together.
+    <p class="muted">Paste the link of a <strong>Bluesky</strong> post or a <strong>Reddit</strong> thread. Through <strong>Context.dev</strong> we read
+      the discussion and every participant's newest public posts (on Bluesky also replies and reposts), then look for accounts that act together.
       Only public data, no login. The result gets its own private link and is deleted after 3 hours. A swarm is a lead to check, not proof.
-      Reddit needs a saved page (next card); other sites are not supported yet.</p>
+      Bluesky gives the whole thread; Reddit gives the comments a browser sees before “load more” (about 25). For more Reddit comments,
+      click “View more comments” and use the saved-page card below. Other sites are not supported yet.</p>
   </section>
 
   <section class="card" aria-labelledby="reddit-h">
-    <h2 id="reddit-h">Analyse a Reddit thread</h2>
+    <h2 id="reddit-h">Analyse a saved Reddit page (more comments)</h2>
     <ol class="steps">
-      <li>Open the thread on reddit.com and <strong>scroll to the end</strong>, so the comments load.</li>
+      <li>Open the thread on reddit.com, scroll down and click <strong>“View more comments”</strong> a few times, so more comments load.</li>
       <li>Save the page: <kbd>Ctrl</kbd>+<kbd>S</kbd> (Mac: <kbd>⌘</kbd>+<kbd>S</kbd>).</li>
       <li>Choose the saved <code>.html</code> file here.</li>
     </ol>
@@ -53,7 +54,7 @@
     <div id="reddit-error" class="error" role="alert" hidden></div>
     <p class="muted">We read the commenters from the page, fetch each one's newest public Reddit comments with
       <strong>Context.dev</strong>, and look for accounts that act together. The result gets its own private link and is deleted after 3 hours.
-      Why save the page instead of pasting a link? Reddit shows the comments only to a browser; the page you save has them.</p>
+      Why save the page? A link gives the first ~25 comments; a page you saved after loading more has all of those.</p>
   </section>
 
   <section class="card" aria-labelledby="upload-h">

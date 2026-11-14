@@ -122,6 +122,20 @@ class ContextDev:
                 pass
         return _direct_json(url), "direct"
 
+    def fetch_html(self, url, wait_ms=6000, must_contain=None, tries=2):
+        """A page's rendered HTML through Context.dev, or "" when it cannot be had.
+
+        must_contain: a marker the page must have (e.g. '<shreddit-comment '); some sites first answer with an
+        anti-bot check, so a page without it is fetched once more with a longer wait.
+        """
+        for attempt in range(tries):
+            out = self._post({"url": url, "formats": {"html": True}, "maxAgeMs": 0,
+                              "sharedParams": {"waitFor": wait_ms + 2000 * attempt}})
+            html = ((out.get("html") or {}).get("data") or "") if out.get("_http_error") is None else ""
+            if html and (must_contain is None or must_contain in html):
+                return html
+        return ""
+
     def reddit_history(self, username, limit=25):
         """One user's newest comments (and account data). Returns a dict with 'status'."""
         key = (username.lower(), limit)

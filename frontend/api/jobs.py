@@ -129,6 +129,45 @@ def _collect_reddit(job, client, bundle, authors, post):
             f"recent comments of {job['histories_ok']} commenters (Context.dev)", list(notes))
 
 
+def _reddit_bundle(raw):
+    """Saved or fetched thread page -> (bundle, authors, post meta, comment rows); raises ConvertError."""
+    try:
+        post = reddit_html.parse_thread(raw)["post"] or {}
+    except reddit_html.NotARedditThread:
+        post = {}
+    url = "https://www.reddit.com/" + (f"comments/{post['id']}/" if post.get("id") else "")
+    text = raw.decode("utf-8", errors="replace") if isinstance(raw, bytes) else raw
+    bundle = {"url": url, "site": "reddit", "pages": [{"url": url, "role": "thread", "html": text}]}
+    rows, _, _ = convert_bundle(bundle)
+    rows = [r for r in rows if r.get("comment_id") != post.get("id")]   # the converter also returns the post itself
+    authors = list(dict.fromkeys(r["username"] for r in rows))          # anonymous and [deleted] are already gone
+    return bundle, authors, post, rows
+
+
+def _reddit_thread_meta(post, rows, authors):
+    return {"platform": "Reddit", "subreddit": post.get("subreddit"), "title": post.get("title"), "post_id": post.get("id"),
+            "comments_found": len(rows), "comments_expected": post.get("comment_count"),
+            "commenters": len(authors), "history_per_commenter": HISTORY, "commenters_fetched": min(len(authors), MAX_USERS)}
+
+
+def _collect_reddit_url(job, client, url):
+    """A Reddit thread link: Context.dev renders the page (what a browser shows before 'load more'), then as a saved page."""
+    job["stage"] = "Reading the thread"
+    html = client.fetch_html(url, must_contain="<shreddit-comment ")
+    if not html:
+        raise contextdev.ContextDevError("Reddit did not show the comments this time (it sometimes answers with a bot check). "
+                                         "Try again in a minute, or save the thread page and use the Reddit card.")
+    try:
+        bundle, authors, post, rows = _reddit_bundle(html)
+    except ConvertError:
+        raise contextdev.ContextDevError("No comments found on that Reddit page.") from None
+    if not authors:
+        raise contextdev.ContextDevError("No commenters found on that Reddit page.")
+    job["thread"] = {**_reddit_thread_meta(post, rows, authors), "url": url}
+    job["progress"] = {"done": 0, "total": job["thread"]["commenters_fetched"]}
+    return _collect_reddit(job, client, bundle, authors, post)
+
+
 def _collect_bluesky(job, client, url):
     job["stage"] = "Reading the thread"
 
@@ -221,12 +260,17 @@ def register(app, analyze, analysis_lock):
         if len(url) > 500 or any(c.isspace() for c in url):
             raise HTTPException(400, "That does not look like a link.")
         if REDDIT_LINK.match(url):
-            raise HTTPException(400, "Reddit shows its comments only to a browser, so a link is not enough: "
-                                     "save the thread page and use the Reddit card below.")
+            if not re.search(r"/comments/[A-Za-z0-9]+", url):
+                raise HTTPException(400, "Give the link of one Reddit thread: https://www.reddit.com/r/NAME/comments/ID/...")
+            if not url.lower().startswith("http"):
+                url = "https://" + url
+            thread = {"platform": "Reddit", "url": url, "title": None, "comments_found": None, "comments_expected": None,
+                      "commenters": None, "history_per_commenter": HISTORY}
+            return _start(thread, 0, lambda job, client: _collect_reddit_url(job, client, url), analyze, analysis_lock)
         if not bluesky.is_bluesky(url):
             if re.match(r"^(?:https?://)?(?:www\.)?bsky\.app(?:/|$)", url, re.I):
                 raise HTTPException(400, "Give the link of one Bluesky post: https://bsky.app/profile/NAME/post/ID.")
-            raise HTTPException(400, "This site is not supported yet (Bluesky post links and saved Reddit pages work now).")
+            raise HTTPException(400, "This site is not supported yet (Bluesky post links, Reddit thread links and saved Reddit pages work now).")
         if not url.lower().startswith("http"):
             url = "https://" + url
         thread = {"platform": "Bluesky", "url": url, "title": None, "comments_found": None, "comments_expected": None,
@@ -240,26 +284,14 @@ def register(app, analyze, analysis_lock):
         if len(raw) > MAX_PAGE_BYTES:
             raise HTTPException(413, "The saved page is larger than 15 MB.")
         try:
-            post = reddit_html.parse_thread(raw)["post"] or {}
-        except reddit_html.NotARedditThread:
-            post = {}
-        url = "https://www.reddit.com/" + (f"comments/{post['id']}/" if post.get("id") else "")
-        bundle = {"url": url, "site": "reddit",
-                  "pages": [{"url": url, "role": "thread", "html": raw.decode("utf-8", errors="replace")}]}
-        try:
-            rows, _, _ = convert_bundle(bundle)
+            bundle, authors, post, rows = _reddit_bundle(raw)
         except ConvertError:
             raise HTTPException(400, "No Reddit comments found in this file. Open the thread on reddit.com, "
                                      "scroll so the comments load, then save the page (Ctrl+S) and choose that file.") from None
-        rows = [r for r in rows if r.get("comment_id") != post.get("id")]   # the converter also returns the post itself
-        authors = list(dict.fromkeys(r["username"] for r in rows))   # anonymous and [deleted] are already gone
         if not authors:
             raise HTTPException(400, "No commenters found in the saved page. Scroll down so the comments load, then save again.")
-        fetched = min(len(authors), MAX_USERS)
-        thread = {"platform": "Reddit", "subreddit": post.get("subreddit"), "title": post.get("title"), "post_id": post.get("id"),
-                  "comments_found": len(rows), "comments_expected": post.get("comment_count"),
-                  "commenters": len(authors), "history_per_commenter": HISTORY, "commenters_fetched": fetched}
-        return _start(thread, fetched, lambda job, client: _collect_reddit(job, client, bundle, authors, post),
+        thread = _reddit_thread_meta(post, rows, authors)
+        return _start(thread, thread["commenters_fetched"], lambda job, client: _collect_reddit(job, client, bundle, authors, post),
                       analyze, analysis_lock)
 
     def _get(job_id):
