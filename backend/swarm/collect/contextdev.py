@@ -59,16 +59,20 @@ class ContextDev:
                     out = json.load(r)
                 if not isinstance(out, dict):
                     raise ValueError("not a JSON object")
-                meta = out.get("key_metadata") or {}
+                meta = out.get("key_metadata")
+                meta = meta if isinstance(meta, dict) else {}
+                used = meta.get("credits_consumed")
                 with self._lock:
-                    self.credits_used += meta.get("credits_consumed") or 0
+                    self.credits_used += used if isinstance(used, (int, float)) else 0
                     if meta.get("credits_remaining") is not None:
                         self.credits_remaining = meta["credits_remaining"]
                 return out
             except urllib.error.HTTPError as e:
                 try:
                     err = json.loads(e.read().decode(errors="replace"))
-                except ValueError:
+                except (ValueError, OSError, http.client.HTTPException):   # not JSON, or the error body was cut off
+                    err = {}
+                if not isinstance(err, dict):
                     err = {}
                 code = err.get("error_code") or ""
                 if e.code == 429:

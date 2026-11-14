@@ -105,7 +105,7 @@ def from_html(html, page_url):
                             "thread_id": post_id, "source": "thread"})
         if p.post["expected"] and p.post["expected"] > len(p.comments):
             warnings.append(f"converter: read {len(p.comments)} of {p.post['expected']} comments on the Reddit thread "
-                            "(the rest were not loaded on the saved page)")
+                            "(the rest were not loaded on the page, e.g. behind Reddit's \"load more\")")
     return rows, [], warnings
 
 

@@ -44,7 +44,7 @@ def test_thread_page_rows_ids_quote_and_coverage():
     assert got["post1"]["thread_id"] == "post1" and got["post1"]["text"] == "post body" and got["post1"]["username"] == "op_user"
     assert {r["thread_id"] for r in rows} == {"post1"}
     assert profiles == []
-    assert warnings == ["converter: read 3 of 5 comments on the Reddit thread (the rest were not loaded on the saved page)"]
+    assert warnings == ["converter: read 3 of 5 comments on the Reddit thread (the rest were not loaded on the page, e.g. behind Reddit's \"load more\")"]
 
 
 def test_post_without_a_body_gives_no_row_and_full_page_no_warning():

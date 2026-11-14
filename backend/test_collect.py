@@ -444,6 +444,9 @@ class _Body:
             raise self._error
         return self._data
 
+    def close(self):   # HTTPError closes the body it wraps
+        pass
+
     def __enter__(self):
         return self
 
@@ -473,6 +476,24 @@ def test_post_survives_a_bad_answer(monkeypatch, body):
     _answers(monkeypatch, body)
     out = contextdev.ContextDev("not-a-real-key")._post({"url": "https://example.test/"}, patient=False)
     assert out["_http_error"] is not None
+
+
+def test_post_ignores_odd_credit_metadata(monkeypatch):
+    _answers(monkeypatch, _Body(b'{"key_metadata": "n/a", "html": {"data": "x"}}'))
+    client = contextdev.ContextDev("not-a-real-key")
+    assert client._post({"url": "https://example.test/"})["html"] == {"data": "x"} and client.credits_used == 0
+    _answers(monkeypatch, _Body(b'{"key_metadata": {"credits_consumed": "1"}}'))
+    client._post({"url": "https://example.test/"})
+    assert client.credits_used == 0
+
+
+@pytest.mark.parametrize("error_body", [_Body(error=http.client.IncompleteRead(b"{")), _Body(b"[1]")])
+def test_post_survives_a_bad_error_body(monkeypatch, error_body):
+    def fail(*a, **k):
+        raise urllib.error.HTTPError("https://example.test/", 404, "not found", {}, error_body)
+    monkeypatch.setattr(urllib.request, "urlopen", fail)
+    out = contextdev.ContextDev("not-a-real-key")._post({"url": "https://example.test/"}, patient=False)
+    assert out["_http_error"] == 404
 
 
 def test_cli_never_prints_a_traceback_for_a_bad_answer(tmp_path, monkeypatch, capsys):

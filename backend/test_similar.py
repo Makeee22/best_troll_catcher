@@ -224,6 +224,9 @@ def test_hashing_counts_each_close_pair_once_against_max_pairs(monkeypatch):
     assert reason is None
     reason, _ = add_items(con, max_pairs=100)
     assert reason and "near-duplicate" in reason
+    monkeypatch.setattr(similar, "MAX_RAW", 1000)   # templated data: few new unions, endless repeats, stopped by the raw budget
+    reason, _ = add_items(con, max_pairs=400)
+    assert reason and "near-duplicate" in reason
 
 
 @needs_model2vec

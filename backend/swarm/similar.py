@@ -22,6 +22,9 @@ EXACT_TEXTS = 50_000
 TABLES, BITS, SMALL = 48, 16, 32
 # Near-duplicate pairs allowed before the signal is skipped: a templated dataset would otherwise run for minutes.
 MAX_PAIRS = 20_000_000
+# Hashed path: candidate pairs it may yield in all (a close pair comes about 13 times). Each costs a union-find step at
+# about 2 million a second, so this stops a templated dataset after some 25 s instead of the 8 min max_pairs * TABLES allows.
+MAX_RAW = 50_000_000
 # Largest group of texts that counts as one item; a bigger one is generic text chained together, not a copy.
 MAX_GROUP = 200
 BLOCK = 1000
@@ -134,7 +137,7 @@ def add_items(con, model=None, threshold=THRESHOLD, max_texts=MAX_TEXTS, max_pai
             raw += len(rows)
             if not hashed:
                 pairs = raw
-            if raw > max_pairs * (TABLES if hashed else 1):
+            if raw > (min(max_pairs * TABLES, MAX_RAW) if hashed else max_pairs):
                 raise _TooManyPairs
             for r, c in zip(rows.tolist(), cols.tolist()):
                 a, b = find(r), find(c)
