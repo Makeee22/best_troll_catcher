@@ -110,7 +110,21 @@ def explain_shared(swarm_id: str):
     return explain_or_http(("shared", id(base.result), swarm_id), base.by_id[swarm_id], base.result["source"])
 
 
-jobs.register_explain(app, explain_or_http)
+def explain_result_or_http(cache_key, result):
+    """explain.explain_result() with its errors as HTTP answers the page can show."""
+    try:
+        return explain.explain_result(cache_key, result)
+    except explain.ExplainError as e:
+        raise HTTPException(429 if "per hour" in str(e) else 503, str(e)) from None
+
+
+@app.post("/api/explain")
+def explain_shared_result():
+    """AI-written explanation of the whole shared result, cached per result."""
+    return explain_result_or_http(("shared-result", id(base.result)), base.result)
+
+
+jobs.register_explain(app, explain_or_http, explain_result_or_http)
 
 
 # Local convenience only (no Docker, no nginx): serve the page from the same port.

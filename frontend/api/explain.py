@@ -131,15 +131,15 @@ def build_evidence(cluster, source):
     return "\n".join(lines)
 
 
-def _call_gemini(evidence):
+def _call_gemini(evidence, instructions=INSTRUCTIONS, schema=SCHEMA):
     key = os.environ.get("GEMINI_API_KEY", "").strip()
     if not key:
         raise ExplainError("Explanations are not configured on this server (GEMINI_API_KEY is missing).")
     body = {
-        "systemInstruction": {"parts": [{"text": INSTRUCTIONS}]},
+        "systemInstruction": {"parts": [{"text": instructions}]},
         "contents": [{"role": "user", "parts": [{"text": "Evidence:\n" + evidence}]}],
-        "generationConfig": {"temperature": 0.2, "maxOutputTokens": 2048,
-                             "responseMimeType": "application/json", "responseSchema": SCHEMA},
+        "generationConfig": {"temperature": 0.2, "maxOutputTokens": 4096,
+                             "responseMimeType": "application/json", "responseSchema": schema},
     }
     req = urllib.request.Request(API.format(model=MODEL), data=json.dumps(body).encode(), method="POST",
                                  headers={"x-goog-api-key": key, "Content-Type": "application/json"})
@@ -166,18 +166,18 @@ def _call_gemini(evidence):
         raise ExplainError(f"The language model gave no usable answer ({reason or 'unknown reason'}).") from None
 
 
-def _call_router(evidence):
+def _call_router(evidence, instructions=INSTRUCTIONS, schema=SCHEMA):
     """Hostinger AI Router, OpenAI chat completions with a JSON schema. -> (answer, model label)"""
     key = os.environ.get("HOSTINGER_ROUTER_API_KEY", "").strip()
     if not key:
         raise ExplainError("Hostinger AI Router is not configured (HOSTINGER_ROUTER_API_KEY is missing).")
     body = {
         "model": ROUTER_MODEL,
-        "messages": [{"role": "system", "content": INSTRUCTIONS},
+        "messages": [{"role": "system", "content": instructions},
                      {"role": "user", "content": "Evidence:\n" + evidence}],
         "temperature": 0.2,
         "max_tokens": 4096,   # the model also spends tokens on reasoning before the answer
-        "response_format": {"type": "json_schema", "json_schema": {"name": "swarm_explanation", "schema": SCHEMA}},
+        "response_format": {"type": "json_schema", "json_schema": {"name": "swarm_explanation", "schema": schema}},
     }
     req = urllib.request.Request(ROUTER + "/chat/completions", data=json.dumps(body).encode(), method="POST",
                                  headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json", "User-Agent": UA})
@@ -204,19 +204,113 @@ def _call_router(evidence):
         raise ExplainError("Hostinger AI Router gave no usable answer.") from None
 
 
-def _answer(evidence):
+def _answer(evidence, instructions=INSTRUCTIONS, schema=SCHEMA):
     """Router first, Gemini directly as fallback. -> (answer, model label, note about the fallback or None)"""
     errors = []
     if os.environ.get("HOSTINGER_ROUTER_API_KEY", "").strip():
         try:
-            answer, label = _call_router(evidence)
+            answer, label = _call_router(evidence, instructions, schema)
             return answer, label, None
         except ExplainError as e:
             errors.append(str(e))
     if os.environ.get("GEMINI_API_KEY", "").strip():
-        answer = _call_gemini(evidence)
+        answer = _call_gemini(evidence, instructions, schema)
         return answer, f"{MODEL} via Google Gemini API", ("; ".join(errors) + " Used Google's Gemini API instead.") if errors else None
     raise ExplainError(errors[0] if errors else "Explanations are not configured on this server (no language-model key).")
+
+
+RESULT_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "headline": {"type": "string", "description": "One sentence: what this analysis found, for someone who has not seen it."},
+        "summary": {"type": "string", "description": "Three to five plain sentences on the whole result, citing evidence ids."},
+        "swarms": {"type": "array", "items": {"type": "object", "properties": {
+            "swarm": {"type": "string", "description": "The swarm label, e.g. S1."},
+            "appears_to": {"type": "string", "description": "One short sentence: what this group appears to do."},
+            "likely_activity": {"type": "string", "enum": ACTIVITIES},
+            "strength": {"type": "string", "enum": ["weak", "moderate", "strong"]},
+            "evidence": {"type": "array", "items": {"type": "string"},
+                         "description": "Evidence ids only, such as S1 or S1.E2; never quote the evidence here."}},
+            "required": ["swarm", "appears_to", "likely_activity", "strength", "evidence"]}},
+        "how_to_read": {"type": "string", "description": "One or two sentences on what the result does and does not mean."},
+        "next_steps": {"type": "array", "items": {"type": "string"}},
+    },
+    "required": ["headline", "summary", "swarms", "how_to_read", "next_steps"],
+}
+
+RESULT_INSTRUCTIONS = """You explain the WHOLE result of a statistical detector that looks for groups of social-media accounts
+sharing the same content (texts, links, reposts, replies) far more often than chance predicts. You get the run's summary and
+a short evidence block per group (S1, S2, ...). Write for a moderator or journalist who is not a statistician.
+
+Rules:
+- Use ONLY the evidence given; cite ids (R1, S1, S1.E1, ...). Do not invent facts, names, motives or links.
+- If no group was found, explain plainly that this is the expected answer for an ordinary discussion and what the detector
+  could and could not have seen (signals used, number of accounts and comments); never hint that something is hidden.
+- For each group say what it APPEARS to do and how strong the evidence is: confidence under 0.4 is weak (groups this weak
+  have included genuine accounts in tests), 0.4-0.7 moderate, above 0.7 strong. A group whose members say they are automated,
+  or that shares news headlines, may be a harmless feed: say so.
+- Members that are linked but not flagged are not accused; never describe them as part of a swarm.
+- No verdict. Never say accounts ARE bots or trolls. No speculation about who is behind a group. Political content: neutral.
+- If the data is synthetic, say so in the headline.
+- Plain English, short sentences."""
+
+MAX_RESULT_SWARMS = 10
+
+
+def build_result_evidence(result):
+    """The whole result as plain lines with ids; usernames never leave the server (only counts and item texts)."""
+    src = result.get("source") or {}
+    clusters = result.get("clusters") or []
+    signals = result.get("signals") or {}
+    used = [k for k, s in signals.items() if s.get("status") == "used"]
+    skipped = [k for k, s in signals.items() if s.get("status") != "used"]
+    lines = [f"R1: data: {src.get('comments_file') or 'uploaded data'}" + (" (SYNTHETIC test data)" if src.get("synthetic") else ""),
+             f"R2: {src.get('comments')} comments by {src.get('accounts')} accounts",
+             f"R3: signals used: {', '.join(used) or 'none'}; skipped: {', '.join(skipped) or 'none'}",
+             f"R4: {len(clusters)} groups found at confidence {((result.get('parameters') or {}).get('min_confidence'))} or more"]
+    at = ((result.get("metrics") or {}).get("at_min_confidence")) or {}
+    if at.get("precision") is not None:
+        lines.append(f"R5: measured against labels in the data: precision {at['precision']}, recall {at['recall']}, "
+                     f"false-positive rate {at['false_positive_rate']} (the cut was chosen with labels visible)")
+    for i, c in enumerate(clusters[:MAX_RESULT_SWARMS], 1):
+        _, clean = _pseudonymise(c)
+        accounts = c.get("accounts") or []
+        flagged = sum(1 for a in accounts if a.get("flagged", True))
+        parts = [f"S{i}: {c['size']} accounts ({flagged} flagged, {len(accounts) - flagged} only linked), confidence {c['confidence']}"]
+        gap = c.get("copy_gap_seconds")
+        if gap:
+            parts.append(f"copies follow each other after a median of {gap['median']:.0f} s")
+        created = c.get("created_within_30_days")
+        if created:
+            parts.append(f"{created['accounts']} of {created['of']} created within one 30-day window")
+        auto = c.get("declared_automation")
+        if auto:
+            parts.append(f"{auto['accounts']} of {auto['of']} say they are automated")
+        lines.append("; ".join(parts))
+        for j, it in enumerate((c.get("top_items") or [])[:3], 1):
+            lines.append(f"S{i}.E{j}: {it.get('kind')}, {it.get('accounts')} members: {clean(it.get('value'))[:200]!r}")
+    if len(clusters) > MAX_RESULT_SWARMS:
+        lines.append(f"(and {len(clusters) - MAX_RESULT_SWARMS} more groups not listed)")
+    return "\n".join(lines)
+
+
+def explain_result(cache_key, result):
+    """Plain-language explanation of a whole result, cached by cache_key. Same provider, privacy and rate limit as explain()."""
+    with _lock:
+        if cache_key in _cache:
+            return _cache[cache_key]
+        now = time.time()
+        _calls[:] = [t for t in _calls if now - t < 3600]
+        if len(_calls) >= PER_HOUR:
+            raise ExplainError(f"This demo allows {PER_HOUR} explanations per hour. Try again later.")
+        _calls.append(now)
+    t0 = time.time()
+    evidence = build_result_evidence(result)
+    answer, label, note = _answer(evidence, RESULT_INSTRUCTIONS, RESULT_SCHEMA)
+    out = {"model": label, "seconds": round(time.time() - t0, 1), "explanation": answer, "evidence_sent": evidence, "note": note}
+    with _lock:
+        _cache[cache_key] = out
+    return out
 
 
 def explain(cache_key, cluster, source):

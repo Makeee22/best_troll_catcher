@@ -10,8 +10,8 @@
 <body>
 <header class="top">
   <div>
-    <h1>Spot the swarm</h1>
-    <p class="muted">Finds groups of accounts that share the same content far more often than chance would explain. Judged on what accounts share, never on a single post.</p>
+    <h1><span class="logo" aria-hidden="true"><i></i><i></i><i></i></span>Spot the swarm</h1>
+    <p class="muted tagline">Finds groups of accounts that share the same content far more often than chance would explain. Judged on what accounts share, never on a single post.</p>
   </div>
   <span id="synthetic-badge" class="badge-synthetic" hidden>Synthetic data</span>
 </header>
@@ -127,6 +127,14 @@ some_user,2026-11-01T10:00:00Z,"Text, with a comma, in quotes",</pre>
         <summary>Signals and settings of this run</summary>
         <div id="signals"></div>
       </details>
+      <div id="result-explain" class="result-explain"></div>
+    </section>
+
+    <section class="card" aria-labelledby="map-h">
+      <h2 id="map-h">Swarm map</h2>
+      <p class="muted">Every swarm as one cluster of dots, one dot per account. Coloured dots are flagged; grey rings are only linked (not accused).
+        A dashed outline marks a weak group (confidence under 0.4). Click a swarm to see its evidence.</p>
+      <div id="swarm-map"></div>
     </section>
 
     <section class="card" aria-labelledby="flagged-h">

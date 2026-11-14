@@ -103,6 +103,7 @@ let loadToken = 0;       // ignore answers that belong to an older result
 // Where a result's details come from: the shared result, or one discussion job (Bluesky link, Reddit page).
 const SHARED = {
   job: null,
+  explainResult: () => api("/api/explain", { method: "POST" }),
   detail: (id) => api("/api/swarms/" + encodeURIComponent(id)),
   explain: (id) => api("/api/swarms/" + encodeURIComponent(id) + "/explain", { method: "POST" }),
   metrics: () => api("/api/metrics"),
@@ -113,6 +114,7 @@ function jobContext(job) {
   const base = "/api/jobs/" + encodeURIComponent(job.id) + "/swarms/";
   return {
     job,
+    explainResult: () => api("/api/jobs/" + encodeURIComponent(job.id) + "/explain", { method: "POST" }),
     detail: (id) => api(base + encodeURIComponent(id)),
     explain: (id) => api(base + encodeURIComponent(id) + "/explain", { method: "POST" }),
     metrics: () => Promise.resolve(job.metrics || { source: job.listing.source, metrics: null }),
@@ -132,7 +134,10 @@ async function showResult(listing, context) {
   $("flagged").replaceChildren(h("p", { class: "muted" }, "Loading accounts…"));
   $("metrics").replaceChildren(h("p", { class: "muted" }, "Loading…"));
   $("detail").replaceChildren();
+  swarmOrder = listing.swarms.map((s) => s.id);
   renderSwarmList(listing.swarms);
+  renderResultExplainBox(listing);
+  $("swarm-map").replaceChildren(h("p", { class: "muted" }, listing.swarms.length ? "Drawing…" : "No swarms in this result, so there is nothing to draw."));
 
   ctx.metrics().then(
     (m) => { if (token === loadToken) renderMetrics(m, listing.parameters || {}); },
@@ -155,6 +160,123 @@ async function showResult(listing, context) {
   }
   renderSource(listing, countFlagged());
   renderFlagged(listing.swarms, listing.parameters || {});
+  if (listing.swarms.length) $("swarm-map").replaceChildren(renderSwarmMap(listing.swarms));
+}
+
+// ---- colours per swarm (same colour on the map, in the list and in the graph) ----
+let swarmOrder = [];
+const PALETTE = ["#e4572e", "#2e86ab", "#8e5bd6", "#3c9d5d", "#d64592", "#e09f1f", "#17a398", "#6b7fd7"];
+const swarmColor = (id) => PALETTE[Math.max(0, swarmOrder.indexOf(id)) % PALETTE.length];
+
+// ---- the swarm map: every swarm as a cluster of dots (phyllotaxis), one dot per account ----
+const MAP_MAX_DOTS = 400;
+
+function renderSwarmMap(swarms) {
+  const W = 900, PAD = 24, GAP = 70;
+  const blobs = swarms.map((s, i) => {
+    const d = details.get(s.id);
+    const members = d ? [...d.accounts].sort((a, b) => (isFlagged(b) - isFlagged(a)) || (b.copied_share - a.copied_share)) : [];
+    const shown = members.slice(0, MAP_MAX_DOTS);
+    const n = Math.max(1, shown.length);
+    const step = n > 150 ? 5.5 : n > 40 ? 9 : 17;
+    const dot = n > 150 ? 2.2 : n > 40 ? 3.8 : 7;
+    const R = Math.max(62, step * Math.sqrt(n) + dot + 10);
+    return { s, i, members, shown, step, dot, R };
+  });
+  // shelf layout: left to right, wrap when the row is full
+  let x = PAD, y = PAD, rowH = 0;
+  for (const b of blobs) {
+    const w = 2 * b.R, hgt = 2 * b.R + 34;
+    if (x + w > W - PAD && x > PAD) { x = PAD; y += rowH + GAP; rowH = 0; }
+    b.cx = x + b.R; b.cy = y + b.R; x += w + GAP; rowH = Math.max(rowH, hgt);
+  }
+  // centre each row
+  const rows = new Map();
+  for (const b of blobs) { const k = Math.round(b.cy - b.R); (rows.get(k) || rows.set(k, []).get(k)).push(b); }
+  for (const row of rows.values()) {
+    const right = Math.max(...row.map((b) => b.cx + b.R));
+    const shift = (W - PAD - right) / 2;
+    row.forEach((b) => { b.cx += shift; });
+  }
+  const H = y + rowH + PAD;
+  const root = svg("svg", { class: "swarm-map", viewBox: "0 0 " + W + " " + H, role: "img",
+    "aria-label": swarms.length + " swarms drawn as clusters of dots; the list below has the same data." });
+  const golden = Math.PI * (3 - Math.sqrt(5));
+  for (const b of blobs) {
+    const color = swarmColor(b.s.id);
+    const g = svg("g", { class: "blob", tabindex: "0", role: "button",
+      "aria-label": "Swarm " + (b.i + 1) + ", " + b.s.size + " accounts, confidence " + fmtConf(b.s.confidence) + ". Show evidence." });
+    const open = () => selectSwarm(b.s.id, true);
+    g.addEventListener("click", open);
+    g.addEventListener("keydown", (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); open(); } });
+    g.append(svg("circle", { class: "halo" + (isWeak(b.s.confidence) ? " weak-halo" : ""), cx: b.cx, cy: b.cy, r: b.R,
+      style: "stroke:" + color + ";fill:" + color }));
+    b.shown.forEach((a, k) => {
+      const r = b.step * Math.sqrt(k + 0.5), t = k * golden;
+      const px = b.cx + r * Math.cos(t), py = b.cy + r * Math.sin(t);
+      g.append(isFlagged(a)
+        ? svg("circle", { cx: px.toFixed(1), cy: py.toFixed(1), r: b.dot, style: "fill:" + color })
+        : svg("circle", { class: "linked-dot", cx: px.toFixed(1), cy: py.toFixed(1), r: b.dot }));
+    });
+    const label = svg("text", { x: b.cx, y: b.cy + b.R + 16, "text-anchor": "middle", class: "blob-label" });
+    const flagged = b.members.filter(isFlagged).length;
+    label.textContent = "Swarm " + (b.i + 1) + " · " + (flagged < b.members.length ? flagged + "/" : "") + b.s.size + " · " +
+      fmtConf(b.s.confidence) + (isWeak(b.s.confidence) ? " weak" : "");
+    const sub = svg("text", { x: b.cx, y: b.cy + b.R + 30, "text-anchor": "middle", class: "blob-sub" });
+    sub.textContent = b.s.sample ? kindName(b.s.sample.kind).toLowerCase() : "";
+    const tip = svg("title");
+    tip.textContent = "Swarm " + (b.i + 1) + ": " + b.s.size + " accounts, " + flagged + " flagged, confidence " + fmtConf(b.s.confidence) +
+      (b.members.length > MAP_MAX_DOTS ? " (first " + MAP_MAX_DOTS + " drawn)" : "") +
+      (b.s.sample ? "\nMost shared: " + String(b.s.sample.value).slice(0, 120) : "");
+    g.append(tip, label, sub);
+    root.append(g);
+  }
+  return h("div", { class: "map-wrap" }, root);
+}
+
+// ---- AI explanation of the whole result ----
+const STRENGTH = { weak: "weak evidence", moderate: "moderate evidence", strong: "strong evidence" };
+
+function renderResultExplainBox(listing) {
+  const box = h("div");
+  const button = h("button", { type: "button", class: "primary ai-button" }, "✦ Explain this result with AI");
+  button.addEventListener("click", async () => {
+    button.disabled = true;
+    box.replaceChildren(h("p", { class: "verdict pending" }, "Gemini is reading the evidence… (about 10–20 seconds)"));
+    try {
+      renderResultExplanation(box, await ctx.explainResult(), listing);
+      button.hidden = true;
+    } catch (e) {
+      box.replaceChildren(h("p", { class: "error" }, e.message));
+      button.disabled = false;
+    }
+  });
+  $("result-explain").replaceChildren(
+    h("div", { class: "ai-head" }, button,
+      h("span", { class: "muted" }, " A language model reads only the counts and the shared items found by the detector (no usernames) and explains them. It never decides who is flagged.")),
+    box);
+}
+
+function renderResultExplanation(box, answer, listing) {
+  const x = answer.explanation || {};
+  const swarmIdFor = (label) => swarmOrder[parseInt(String(label).replace(/\D/g, ""), 10) - 1];
+  box.replaceChildren(h("div", { class: "verdict explained result-ai" },
+    h("p", { class: "ai-label" }, "AI-generated summary (" + answer.model + ", " + answer.seconds + " s). It explains the detector's evidence; it is not a verdict."),
+    x.headline ? h("p", { class: "ai-headline" }, x.headline) : null,
+    x.summary ? h("p", null, x.summary) : null,
+    (x.swarms || []).length ? h("ul", { class: "ai-swarms" }, x.swarms.map((s) => {
+      const id = swarmIdFor(s.swarm);
+      return h("li", { style: id ? "border-left-color:" + swarmColor(id) : "" },
+        h("strong", null, (s.swarm || "").replace(/^S/, "Swarm ")), " ",
+        h("span", { class: "strength strength-" + s.strength }, STRENGTH[s.strength] || s.strength), " ",
+        s.appears_to, " ",
+        h("span", { class: "refs" }, "[" + (s.evidence || []).join(", ") + "]"), " ",
+        id ? h("button", { type: "button", class: "link-button", onclick: () => selectSwarm(id, true) }, "Show evidence") : null);
+    })) : null,
+    x.how_to_read ? h("p", { class: "muted" }, x.how_to_read) : null,
+    (x.next_steps || []).length ? h("div", null, h("strong", null, "What to check next"), h("ul", null, x.next_steps.map((t) => h("li", null, t)))) : null,
+    answer.note ? h("p", { class: "muted" }, answer.note) : null,
+    h("details", null, h("summary", null, "What was sent to the model"), h("pre", null, answer.evidence_sent || ""))));
 }
 
 const countFlagged = () => new Set([...details.values()].flatMap((d) => d.accounts.filter(isFlagged).map((a) => a.username))).size;
@@ -287,7 +409,7 @@ function renderSwarmList(swarms) {
     return;
   }
   $("swarm-list").replaceChildren(...swarms.map((s, i) =>
-    h("button", { type: "button", class: "swarm-item", "aria-pressed": "false", "data-id": s.id,
+    h("button", { type: "button", class: "swarm-item", "aria-pressed": "false", "data-id": s.id, style: "border-left-color:" + swarmColor(s.id),
                   onclick: () => selectSwarm(s.id, false) },
       h("span", { class: "swarm-head" },
         h("strong", null, "Swarm " + (i + 1)),
@@ -435,7 +557,7 @@ function renderDetail(d) {
           h("td", null, a.username), h("td", { class: "num" }, fmtPct(a.copied_share)),
           h("td", null, isFlagged(a) ? "yes" : "no, only linked")))))),
     h("h3", null, "Who is linked to whom"),
-    names.length <= 24 ? renderGraph(names, edges) : h("p", { class: "muted" }, "Too many accounts for the picture; see the table."),
+    names.length <= 24 ? renderGraph(names, edges, swarmColor(d.id), new Set(d.accounts.filter((a) => !isFlagged(a)).map((a) => a.username))) : h("p", { class: "muted" }, "Too many accounts for the picture; see the table."),
     h("div", { class: "scroll" }, h("table", null,
       h("thead", null, h("tr", null, h("th", null, "Account"), h("th", null, "Account"), h("th", null, "Linked by"),
         h("th", { class: "num" }, "Shared items"))),
@@ -462,7 +584,7 @@ function renderItems(items) {
     h("div", { class: "text" }, it.value || "(empty)"))));
 }
 
-function renderGraph(accounts, edges) {
+function renderGraph(accounts, edges, color, linkedOnly) {
   const size = 360, c = size / 2, r = accounts.length > 1 ? 110 : 0;
   const pos = new Map(accounts.map((a, i) => {
     const angle = (2 * Math.PI * i) / accounts.length - Math.PI / 2;
@@ -479,7 +601,9 @@ function renderGraph(accounts, edges) {
     const label = svg("text", { x: p.x + 12 * p.cos, y: p.y + 12 * p.sin + 4,
                                 "text-anchor": p.cos > 0.3 ? "start" : p.cos < -0.3 ? "end" : "middle" });
     label.textContent = name.length > 14 ? name.slice(0, 13) + "…" : name;
-    root.append(svg("circle", { cx: p.x, cy: p.y, r: 6 }), label);
+    root.append(linkedOnly && linkedOnly.has(name)
+      ? svg("circle", { class: "linked-dot", cx: p.x, cy: p.y, r: 6 })
+      : svg("circle", { cx: p.x, cy: p.y, r: 7, style: color ? "fill:" + color : "" }), label);
   }
   return root;
 }
