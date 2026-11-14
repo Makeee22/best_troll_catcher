@@ -102,3 +102,14 @@ def test_whitespace_only_cells_are_empty(tmp_path, make_csv):
     con = connect()
     load(con, make_csv(tmp_path, "c.csv", [{"username": "ann", "text": "hi", "repost_of": " ", "parent_id": "\t"}]))
     assert rows(con, "select repost_of, parent_id from comments") == [(None, None)]
+
+
+def test_memory_limit_from_the_environment(monkeypatch):
+    from swarm.load import close
+    monkeypatch.setenv("SWARM_MEMORY_LIMIT", "512MB")
+    con = connect()
+    assert con.execute("select current_setting('memory_limit')").fetchall()[0][0] == "488.2 MiB"   # 512 MB = 488.2 MiB
+    close(con)
+    monkeypatch.setenv("SWARM_MEMORY_LIMIT", "512MB'; drop table x; --")
+    with pytest.raises(InputError, match="SWARM_MEMORY_LIMIT"):
+        connect()

@@ -1,5 +1,7 @@
 """Read the two standard CSV files into the DuckDB tables `comments` and `profiles`."""
 import atexit
+import os
+import re
 import shutil
 import tempfile
 from pathlib import Path
@@ -22,11 +24,29 @@ class InputError(ValueError):
 _WORK_DIRS = {}
 
 
+def _memory_limit():
+    """SWARM_MEMORY_LIMIT (e.g. "4GB"), else half the machine's memory. DuckDB's own default, 80%, plus Python's share
+    made an 8 GB laptop swap on 4.1 million comments (17 min; docs/test-fox8-and-tweets.md)."""
+    value = os.environ.get("SWARM_MEMORY_LIMIT", "").strip()
+    if value:
+        if not re.fullmatch(r"\d+(\.\d+)?\s*[KMGT]i?B", value, re.I):
+            raise InputError(f"SWARM_MEMORY_LIMIT must look like 4GB or 512MB, not {value!r}")
+        return value
+    try:
+        total = os.sysconf("SC_PAGE_SIZE") * os.sysconf("SC_PHYS_PAGES")
+    except (AttributeError, ValueError, OSError):  # Windows has no sysconf: keep DuckDB's default
+        return None
+    return f"{max(1, total // 2 // 2**20)}MiB"
+
+
 def connect():
     work = tempfile.mkdtemp(prefix="swarm-")
     atexit.register(shutil.rmtree, work, ignore_errors=True)
     con = duckdb.connect(str(Path(work, "work.duckdb")))
     con.execute("SET TimeZone='UTC'")
+    limit = _memory_limit()
+    if limit:  # beyond it DuckDB spills to the work folder on disk instead of the machine swapping
+        con.execute(f"SET memory_limit='{limit}'")
     _WORK_DIRS[id(con)] = work
     return con
 

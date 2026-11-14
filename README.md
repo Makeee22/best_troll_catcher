@@ -65,6 +65,8 @@ It prints the signals that ran, each cluster with its size and confidence, and t
 .venv/bin/python -m swarm comments.csv --similar-text           # also count reworded copies (downloads a ~512 MB model once)
 ```
 
+**Large files:** the core keeps its working data in a temporary database and uses at most half the machine's memory, spilling the rest to disk. Set `SWARM_MEMORY_LIMIT=2GB` (or any size) to change that, e.g. on a shared server.
+
 **Collect a discussion from a link** (needs network; Bluesky and Hacker News need no key; Reddit and review pages need a [Context.dev](https://context.dev) key in `CONTEXT_DEV_API_KEY`):
 
 ```bash
