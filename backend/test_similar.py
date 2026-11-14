@@ -59,8 +59,9 @@ def test_reworded_swarm_is_found_with_the_layer(tmp_path):
 
 
 @needs_model2vec
-def test_a_reworded_swarm_is_found_when_its_copies_are_the_only_near_duplicates(tmp_path, make_csv):
-    # every other text is unique, so the chance rate must come from all texts, not from the swarm's own groups
+def test_a_reworded_swarm_is_found_in_clean_background(tmp_path, make_csv):
+    # the background's only near-duplicates are chance pairs of word bags, so the rate must come from all texts:
+    # counted among grouped texts alone it is 0.022 here and the swarm is missed
     variants = [("the council voted to close the old library on main street next spring",
                  "the council has voted to close the old library on main street next spring"),
                 ("our mayor is lying to you about the new bridge and its real cost",

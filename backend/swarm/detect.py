@@ -151,7 +151,7 @@ def detect(con, *, min_shared=MIN_SHARED, alpha=ALPHA, min_size=MIN_SIZE, pair_b
     # chance that two different posts of one kind are the same item (unbiased: a post never matches itself)
     con.execute("create or replace table s as select kind, sum(df::double * (df - 1)) / nullif(sum(df)::double * (sum(df) - 1), 0) as s "
                 "from df group by kind")
-    if similar_text and con.execute("select count(*) from item where kind = 'similar_text'").fetchall()[0][0]:
+    if similar_text and con.execute("select count(*) from df where kind = 'similar_text'").fetchall()[0][0]:
         _similar_rate(con)
 
     max_sharers = _max_sharers(con, pair_budget)
