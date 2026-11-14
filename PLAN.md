@@ -95,6 +95,7 @@ Status is `OPEN` or `DECIDED`. When a branch is decided, write the date and the 
 | **B12** | Product shape | One hosted tool / open core + website with partner tools | **DECIDED 14.11: open core + website**, see [What we build](#what-we-build) | done |
 | **B13** | Does the two-part idea fit Hostinger's challenge? | Yes as is / the core needs AI in it / something else | **DECIDED 14.11 afternoon (mentors not reached): continue as planned.** No language model in the core; its only model is the embedding model that recognises reworded copies with the same meaning (statistics do the rest). A larger cloud embedding model through a partner API only if it raises recall clearly. Language-model explanations stay a website extra | done |
 | **B14** | Lone bots | In scope / out of scope | **DECIDED 14.11: out of scope.** A cluster is at least three accounts | done |
+| **B15** | Recall or false positives first | Flag only near-certain swarms / find more of each botnet and accept some false positives | **DECIDED 14.11 night (Arde1001): find more, accept some false positives.** Detection was too weak (Test F, Test A). The product is for putting accounts under monitoring, never for restrictive decisions, and says so everywhere results are shown: not every flagged account is a bot. False-positive rates are still measured and reported | done |
 
 ## Partner tech
 

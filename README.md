@@ -36,7 +36,7 @@ A progress line shows what is being fetched. A large thread takes a few minutes,
 - **Explain this swarm with AI** writes a plain-language reading of that evidence, cites it, weighs the innocent explanations (breaking news, a real campaign, a feed), and checks the news for the most shared items. It never decides who is flagged, and usernames are replaced with "Member 1…" before anything is sent.
 - **How good is the detection on this data?** appears when the data has labels: precision, recall and false-positive rate at each confidence cut.
 
-**A flag is a lead to check, not proof.** Confidence is how much of the members' own content the group shares, not a probability. A harmless feed that posts the same wire text looks exactly like a swarm.
+**A flag is a reason to watch an account, not a verdict.** Spot the swarm is built to put accounts under monitoring, not to ban, block or restrict anyone: it deliberately favours finding more of a botnet over never flagging a real person, so **some flagged accounts are not bots**. Each flag comes with its evidence so a person can check it. Confidence is how much of the members' own content the group shares, not a probability. A harmless feed that posts the same wire text looks exactly like a swarm.
 
 ## Run the core on your own machine
 
