@@ -250,3 +250,35 @@ def test_a_few_text_links_do_not_bring_back_the_uncopied_text(tmp_path, make_csv
     assert con.execute("select kind, count(*) from link group by kind order by kind").fetchall() == [("repost", 15), ("text", 1)]
     [(size, confidence)] = con.execute("select size, confidence from cluster").fetchall()
     assert size == 6 and confidence > 0.9
+
+
+def _thread(readers, parents, thread="t1"):
+    """Each reader replies once to each parent post of one thread, in words of its own (handoff 6e, R7)."""
+    return [{"username": r, "comment_id": f"{r}-{p}", "parent_id": p, "thread_id": thread,
+             "text": f"{r} answers {p} with thoughts on {WORDS[i % 12]} only"} for r in readers for i, p in enumerate(parents)]
+
+
+def _history(owner, n):
+    """n posts of the owner's own, each in a thread of its own, replying to posts nobody else answers."""
+    return [{"username": owner, "comment_id": f"{owner}-h{i}", "parent_id": f"{owner}-p{i}", "thread_id": f"{owner}-t{i}",
+             "text": f"{owner} wrote note number {i} about {WORDS[i % 12]} today"} for i in range(n)]
+
+
+def test_readers_seen_only_in_the_thread_are_not_linked_for_replying_to_its_top_posts(tmp_path, make_csv):
+    readers = [f"r{i}" for i in range(10)]
+    others = [f"h{i}" for i in range(40)]
+    rows = _thread(readers + others, ["root", "top"]) + [r for h in others for r in _history(h, 25)]
+    con, signals, _ = run(tmp_path, make_csv, rows)
+    assert clusters(con) == []
+    assert con.execute("select count(*) from thread_only").fetchall() == [(10,)]
+    assert con.execute("select count(*) from item where kind = 'reply' and username like 'r%'").fetchall() == [(0,)]
+
+
+def test_accounts_seen_only_in_one_thread_still_link_on_copied_text(tmp_path, make_csv):
+    swarm = [f"s{i}" for i in range(6)]
+    rows = [{"username": s, "comment_id": f"{s}-{i}", "thread_id": "page", "parent_id": "page",
+             "text": f"best product ever bought number {i} five stars"} for s in swarm for i in range(3)]
+    rows += [{"username": f"u{a}", "comment_id": f"u{a}-{i}", "thread_id": "page", "parent_id": "page",
+              "text": f"u{a} reviews it as {WORDS[i % 12]} and {WORDS[(a + i) % 12]} fine"} for a in range(60) for i in range(3)]
+    con, _, _ = run(tmp_path, make_csv, rows)
+    assert clusters(con) == [set(swarm)]

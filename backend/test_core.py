@@ -20,7 +20,7 @@ def test_result_document(tmp_path):
                           "first_seen", "last_seen", "created_within_30_days", "copy_gap_seconds", "declared_automation",
                           "flagged_members"}
     assert swarm["confidence"] == 0.375 and swarm["edge_count"] == 28 and len(swarm["edges"]) == 28
-    assert swarm["accounts"][0] == {"username": "troll_0_0", "copied_share": 0.375, "flagged": True}
+    assert swarm["accounts"][0] == {"username": "troll_0_0", "copied_share": 0.375, "flagged": True, "thread_only": False}
     assert swarm["flagged_members"] == swarm["size"]
     assert swarm["edges"][0].keys() == {"source", "target", "kind", "shared", "created_together"}
     assert len(swarm["top_items"]) == 6 and swarm["top_items"][0]["accounts"] == 8
@@ -155,6 +155,7 @@ def test_member_flag_uses_the_unrounded_confidence():
     con.execute("create table link (u1 VARCHAR, u2 VARCHAR, kind VARCHAR, shared BIGINT, created_together BOOLEAN)")
     con.execute("create table item (username VARCHAR, kind VARCHAR, key UBIGINT, value VARCHAR, first_seen TIMESTAMP, last_seen TIMESTAMP)")
     con.execute("create table profiles (username VARCHAR, display_name VARCHAR, bio VARCHAR, created_at TIMESTAMP)")
+    con.execute("create table thread_only (username VARCHAR)")
     con.execute("insert into cluster values ('c1', 2, 0.37549)")
     con.execute("insert into member values ('a', 'c1', 0.1876), ('b', 'c1', 0.5)")
     [c] = _clusters(con, 0.2, 0.5)

@@ -55,11 +55,11 @@ def _clusters(con, min_confidence, member_ratio):
            for c, size, conf in con.execute("select * from kept").fetchall()}
 
     conf_of = dict(con.execute("select cluster, confidence from kept").fetchall())  # unrounded, as evaluate.py compares
-    for c, user, share in con.execute(
-            "select cluster, username, copied_share from member where cluster in (select cluster from kept) "
-            "order by cluster, copied_share desc, username").fetchall():
+    for c, user, share, only in con.execute(
+            "select cluster, username, copied_share, username in (select username from thread_only) from member "
+            "where cluster in (select cluster from kept) order by cluster, copied_share desc, username").fetchall():
         flagged = _flagged(share, conf_of[c], member_ratio)
-        out[c]["accounts"].append({"username": user, "copied_share": round(share, 3), "flagged": flagged})
+        out[c]["accounts"].append({"username": user, "copied_share": round(share, 3), "flagged": flagged, "thread_only": only})
         out[c]["flagged_members"] += flagged
 
     for c, a, b, kind, shared, together, total in _edges(con):

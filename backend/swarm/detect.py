@@ -175,13 +175,24 @@ def detect(con, *, min_shared=MIN_SHARED, alpha=ALPHA, min_size=MIN_SIZE, pair_b
         raise InputError("nothing to compare: needs comments with a text of at least "
                          f"{MIN_WORDS} words, links, repost_of or parent_id (columns text, links, repost_of, parent_id)")
 
+    # An account seen in one thread only (no history fetched, or none exists) replies to that thread's posts because it
+    # is in the thread: replying to the same posts as others is no evidence for it. Its copied text, links and reposts
+    # still count, so a review page's copy-paste swarm is still found (handoff 6e, R7).
+    con.execute("""
+        create or replace table thread_only as select username from comments group by username
+        having count(thread_id) = count(*) and count(distinct thread_id) = 1""")
+    con.execute("delete from item where kind = 'reply' and username in (select username from thread_only)")
+
     con.execute("create or replace table df as select kind, key, count(*) as df from item group by kind, key")
     con.execute("create or replace table n as select username, kind, count(*) as n from item group by username, kind")
     # chance that two different posts of one kind are the same item (unbiased: a post never matches itself)
     # An item counts toward the chance rate as if at most `rate_cap` accounts shared it: a large botnet's own copies
     # otherwise set the rate (humans share 11-16 times less often than the uncapped rate predicts, Test A).
-    con.execute("create or replace table s as select kind, sum(least(df, ?)::double * (least(df, ?) - 1)) "
-                "/ nullif(sum(df)::double * (sum(df) - 1), 0) as s from df group by kind", [rate_cap, rate_cap])
+    # Not for replies: many accounts answering one popular post is what people do (a thread's story and top comment,
+    # handoff 6e R7); capped, every pair of commenters who answered both would look coordinated.
+    con.execute("create or replace table s as select kind, sum(c::double * (c - 1)) / nullif(sum(df)::double * (sum(df) - 1), 0) as s "
+                "from (select kind, df, case when kind = 'reply' then df else least(df, ?) end as c from df) group by kind",
+                [rate_cap])
     if similar_text and con.execute("select count(*) from df where kind = 'similar_text'").fetchall()[0][0]:
         _similar_rate(con)
 
