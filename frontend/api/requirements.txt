@@ -1,0 +1,5 @@
+# On top of backend/requirements.txt.
+python-multipart>=0.0.9,<1
+# backend/swarm/similar.py imports numpy at module level but backend/requirements.txt
+# does not list it (commit bfaac31). Remove this line once the backend lists or defers it.
+numpy>=1.26,<3
