@@ -110,13 +110,14 @@ def from_html(html, page_url):
 
 
 def _reddit_user(data, page_url):
-    user = data.get("user") or {}
-    name = user.get("username") or ""
-    rows = [{"comment_id": c.get("id") or "", "username": name, "display_name": "", "text": c.get("body") or "",
-             "timestamp": c.get("posted_at") or "", "parent_id": c.get("parent_id") or "",
-             "thread_id": _id((c.get("post") or {}).get("id")), "source": "history"}
-            for c in data.get("comments") or []]
-    return rows, [{"username": name, "display_name": "", "created_at": user.get("created_at") or "", "post_count": ""}], []
+    user = _d(data.get("user"))
+    name = _s(user.get("username"))
+    comments = [c for c in data.get("comments") if isinstance(c, dict)] if isinstance(data.get("comments"), list) else []
+    rows = [{"comment_id": _s(c.get("id")), "username": name, "display_name": "", "text": _s(c.get("body")),
+             "timestamp": _s(c.get("posted_at")), "parent_id": _s(c.get("parent_id")),
+             "thread_id": _id(_d(c.get("post")).get("id")), "source": "history"}
+            for c in comments]
+    return rows, [{"username": name, "display_name": "", "created_at": _s(user.get("created_at")), "post_count": ""}], []
 
 
 def _d(x):
@@ -143,7 +144,9 @@ def _review_rows(items, thread_id, fields, count=lambda item: ""):
 
 
 def _join(*parts):
-    return "\n".join(p for p in map(_s, parts) if p)
+    """Text parts joined by newlines; a list part contributes its string items."""
+    flat = [q for p in parts for q in (p if isinstance(p, list) else [p])]
+    return "\n".join(p for p in map(_s, flat) if p)
 
 
 def _names_only(kind, mapper):
@@ -210,7 +213,8 @@ MAPPERS = {"reddit-user": _reddit_user, "google-maps-reviews": _google_maps,
 
 def from_parsed(parsed, page_url):
     """Rows from Context.dev's parser output; ({type, success, data}) -> (rows, profiles, warnings)."""
-    kind = parsed.get("type") or ""
+    parsed = _d(parsed)
+    kind = parsed.get("type") if isinstance(parsed.get("type"), str) else ""
     if kind not in MAPPERS:
         return [], [], [f"converter: no mapper for parser {kind}"]
     if not parsed.get("success"):

@@ -216,15 +216,15 @@ def test_every_mapper_survives_empty_data():
 
 
 def test_malformed_items_and_values_do_not_crash_or_hide_the_good_rows():
-    good_user = {"id": "ok", "text": "fine", "author": {"id": "u1", "username": "u1", "name": "U"}, "user": {"name": "U"}, "reviewer": {"name": "U"}}
-    for kind in ("google-maps-reviews", "tripadvisor-reviews", "yelp-reviews", "g2-reviews", "tiktok-comments",
+    good_user = {"id": "ok", "text": "fine", "body": "fine", "author": {"id": "u1", "username": "u1", "name": "U"}, "user": {"name": "U"}, "reviewer": {"name": "U"}}
+    for kind in ("reddit-user", "google-maps-reviews", "tripadvisor-reviews", "yelp-reviews", "g2-reviews", "tiktok-comments",
                  "app-store-reviews", "google-play-reviews"):
-        key = "comments" if kind == "tiktok-comments" else "reviews"
+        key = "comments" if kind in ("tiktok-comments", "reddit-user") else "reviews"
         for bad in ({"reviews": "x", "comments": "x"}, {"reviews": {"a": 1}, "comments": {"a": 1}}, {"reviews": None, "comments": None}):
             assert sites.from_parsed(parsed(kind, bad), "u")[0] == []
         data = {key: [None, "str", 5, {"id": "b", "author": None, "user": "x", "reviewer": ["x"], "likes": 5, "dislikes": ["a"],
-                                       "problems_solved": {"a": 1}, "text": 7, "title": None, "snippet": 3}, good_user],
-                "product": "x", "location": 5, "business": [], "app_id": None}
+                                       "problems_solved": {"a": 1}, "text": 7, "title": None, "snippet": 3, "body": 3, "post": "x", "parent_id": ["x"]}, good_user],
+                "product": "x", "location": 5, "business": [], "app_id": None, "user": "x"}
         rows = sites.from_parsed(parsed(kind, data), "u")[0]
         assert [r["comment_id"] for r in rows] == ["b", "ok"]  # non-dict items skipped, odd values read as empty
         assert all(isinstance(v, str) for r in rows for v in r.values())
@@ -239,3 +239,23 @@ def test_google_user_placeholder_leaves_no_profile():
     data = {"featureId": "f", "reviews": [{"id": "r", "snippet": "text", "user": {"name": "A Google user", "reviews": 3}}]}
     rows, profiles, _ = sites.from_parsed(parsed("google-maps-reviews", data), "u")
     assert merge(rows, profiles)[1] == []
+
+
+def test_g2_list_fields_are_joined_item_by_item():
+    data = {"reviews": [{"reviewer": {"name": "Ann"}, "likes": ["fast", None, "cheap"], "dislikes": "slow"}]}
+    assert sites.from_parsed(parsed("g2-reviews", data), "u")[0][0]["text"] == "fast\ncheap\nslow"
+
+
+def test_reddit_user_with_malformed_user_comments_and_post():
+    for data in ({"user": "x", "comments": "y"}, {"user": None, "comments": [None, 5, "s"]}):
+        assert sites.from_parsed(parsed("reddit-user", data), "u")[0] == []
+    rows = sites.from_parsed(parsed("reddit-user", {"user": {"username": "a"}, "comments": [{"id": "c", "body": "t", "post": "x"}]}), "u")[0]
+    assert (rows[0]["username"], rows[0]["thread_id"]) == ("a", "")
+
+
+def test_page_with_a_malformed_parsed_value_gives_the_unknown_parser_warning():
+    for bad in ("a string", ["list"], {"type": ["g2-reviews"], "success": True}, {"type": 5}):
+        assert sites.from_parsed(bad, "u") == ([], [], ["converter: no mapper for parser "])
+    page = {"url": "u", "role": "thread", "parsed": "oops"}
+    comments, _, notes = convert({"url": "u", "pages": [page, {"url": "u", "role": "thread", "html": THREAD}]})
+    assert any("no mapper" in n for n in notes) and comments
