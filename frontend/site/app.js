@@ -753,7 +753,8 @@ function renderJobBanner(job) {
     ...bannerLines(job),
     h("p", { class: "note-plain" },
       "Private result: only people with this link can see it, and it is deleted after 3 hours. " +
-      "A swarm here is a lead to check, not proof: real people who campaign together look the same as a bot network."),
+      "A swarm here is a lead to check, not proof: real people who campaign together look the same as a bot network. " +
+      "Flagged accounts are worth watching, not proven bots; some of them are real people. Use this to monitor accounts, never to ban or restrict them."),
     h("p", null, h("button", { type: "button", onclick: () => { location.hash = ""; $("results").hidden = true; scrollTo(0, 0); } }, "New analysis")));
 }
 

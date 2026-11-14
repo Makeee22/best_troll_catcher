@@ -72,6 +72,8 @@ Rules:
   answer each other in one community, everyone sharing one piece of breaking news, a common short phrase.
   Rate each one low / medium / high with a reason taken from the evidence.
 - No verdict. Never say the accounts ARE bots or trolls; say what the evidence suggests and how strongly.
+- The tool is for monitoring: flagged accounts are worth watching, not proven bots, and some of them are real people.
+  Say so once, and never suggest banning, suspending or restricting anyone; suggest watching and checking instead.
 - Never speculate about who is behind the group or about individual people. Members are numbered on purpose.
 - If the shared content is political, describe the message neutrally; do not take sides.
 - Plain English, short sentences, for a moderator who is not a statistician."""
@@ -253,6 +255,9 @@ Rules:
   or that shares news headlines, may be a harmless feed: say so.
 - Members that are linked but not flagged are not accused; never describe them as part of a swarm.
 - No verdict. Never say accounts ARE bots or trolls. No speculation about who is behind a group. Political content: neutral.
+- The tool is for monitoring: in how_to_read, say that flagged accounts are worth watching, not proven bots, that some of
+  them are real people, and that the result is for monitoring accounts, never for banning or restricting them. Next steps
+  are things to watch or check, never bans, suspensions or restrictions.
 - If the data is synthetic, say so in the headline.
 - Plain English, short sentences."""
 
