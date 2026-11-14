@@ -191,8 +191,9 @@ One JSON document, the same from the command line and the API. It is self-contai
 
 - **Benign automation is flagged.** News feeds that post the same wire text are coordinated by this definition. The synthetic set contains three, and they are reported with confidence 1.0. Telling them from a swarm needs knowledge the core does not have.
 - **Reworded copies are missed** unless the optional similar-text layer is on.
-- **Loose groups are missed.** Accounts that share under 20% of their content with each other fall below the default cut.
-- **Small data proves little.** With few comments the chance test rarely passes, by design.
+- **Loose groups are missed.** Accounts that share under 20% of their content with each other fall below the default cut. Measured with planted swarms: 6 copied messages are found with up to 24 own posts per member and missed with 30.
+- **Small data proves little.** With few comments the chance test rarely passes, by design. The long-text rule helps most here: on Cresci thinned to 10 comments per account, recall went from 0.12 to 0.78.
+- **All signals share one chance test.** A signal that adds many weak pairs makes the test stricter for every signal. A trial near-duplicate signal lowered recall on thinned data for this reason and was not adopted.
 - **Big swarms hide small evidence.** A large swarm's own copies raise `S`, which makes every other pair look less surprising.
 - **The profile file adds evidence only,** not confidence. See finding 5.
 - **Timing is not used for linking.** A swarm that shares nothing but reacts within seconds is not found.
