@@ -6,8 +6,15 @@ Guidance for Claude Code (and any AI coding tool) in this repository. Every team
 
 A Junction 2026 hackathon project (13–15.11.2026, team of 4) for two partner challenges:
 
-- **Hostinger, "Decode the Noise"** (main): an AI tool that detects propaganda, bots and bad actors online. Our direction is **Spot the swarm**: detect coordinated inauthentic behaviour (bot networks, astroturfing, brigading) from posting timing, account similarity, text reuse and amplification patterns, not from any single post.
-- **Context.dev** (second): "a product that reacts to the live web". Their API must be a real part of the product: it feeds live web content into our ingest.
+- **Hostinger, "Decode the Noise"** (main): an AI tool that detects propaganda, bots and bad actors online. Our direction is **Spot the swarm**: find groups of accounts that behave like one actor (bot networks, astroturfing, brigading) from what they share and how, not from any single post. Lone bots are out of scope.
+- **Context.dev** (second): "a product that reacts to the live web". Their API must be a real part of the product: it collects the comments of a site the user points at.
+
+The product has two parts (team decision 14.11):
+
+1. **The core** (`backend/`, the MVP): an open-source program anyone can download and run. Input: a CSV of comments and an optional CSV of profiles, in one standard format for any website. Output: a list of account clusters that are probably coordinated, each with a confidence and its evidence. It is purely algorithmic: no language model, no accounts, no paid services. It must scale from a laptop to a large dataset. Design: `docs/core-design.md`; build plan: `docs/core-plan.md`.
+2. **The website** (after the MVP): runs the core on Hostinger by default. Connected accounts or API keys (Hostinger AI Router, Gemini, OpenAI, Anthropic, Context.dev) add optional features, such as collecting a site's comments from a link or explaining a cluster in plain language. "Run locally" links to the install instructions on GitHub; a result produced locally can be uploaded to the website for the connected tools.
+
+Not confirmed yet: whether this split fits Hostinger's idea of the challenge. The team asks their mentors when they are back at the venue.
 
 Hard requirements:
 - The product **runs live on Hostinger infrastructure with a public URL** the judges can open.
@@ -52,13 +59,16 @@ One owner per directory. This is how four people avoid git conflicts.
 ## Secrets and data
 
 - API keys live only in `.env`, which is ignored. Never print a key into code, docs, commit messages or logs.
-- `Junction Platform.txt` and `kaikki.pdf` (the event guide and challenge texts) are ignored on purpose: they hold personal data and other partners' keys. Never commit or quote them. Partner promo codes stay out of the repo too.
-- Raw datasets go in `data/raw/` (ignored). `data/README.md` records where each one comes from and its license. No file over about 50 MB in git.
+- `Junction Platform.txt`, `kaikki.pdf` and `techpartners.txt` (the event guide, challenge texts and partner notes) are ignored on purpose: they hold personal data and other partners' keys. Never commit or quote them. Partner promo codes stay out of the repo too.
+- Raw datasets go in `data/raw/` or `backend/data/` (both ignored). `data/README.md` records where each one comes from and its license. No file over about 50 MB in git.
+- The Cresci 2017 dataset in `backend/data/` is for research use only and holds real people's tweets. Never commit it, quote its content, or serve it from the live site. Only aggregate numbers leave the machine.
 
 ## Detection rules
 
-- The language model is the **judge of evidence**, never the only detector. Deterministic signals find the candidates first.
-- Every verdict lists its evidence and the innocent explanations that were considered (breaking news, real campaigns, benign automated feeds, one viral post).
+- The core is deterministic. No language model decides who is flagged. On the website a language model may explain a cluster the core found, never find or overrule one.
+- Every cluster lists its evidence. The innocent look-alikes (breaking news, real campaigns, benign automated feeds, one viral post) each have a test.
+- Any input column may be missing. The core warns and skips the signals that need it. It stops only when `username` is missing or no signal can run.
+- Labels are used to measure, never to train a model. Bot-detection benchmarks contain shortcuts (see `docs/core-design.md`). The one value picked with the labels visible is the confidence cut; say so wherever results are shown.
 - Every change to detection is re-run on the evaluation set, and the new numbers go into `PLAN.md`.
 - Synthetic or simulated test data is always labelled as synthetic, in the data and in anything shown to judges.
 - Prefer the smallest version that works. No features outside the plan.
@@ -94,6 +104,8 @@ docker build -t swarm-backend .                                     # image; ser
 Front end and deploy: not written yet.
 
 ## Architecture
+
+**This section and "Commands" describe the first skeleton, which is being replaced.** The core is built from `docs/core-plan.md`; its task 7 rewrites both sections. The skeleton's 60-second rule was measured to be the wrong signal on real data (`docs/core-design.md`, "What the data showed").
 
 - `backend/swarm/detect.py`: the detection. Posts are grouped by shared content (normalised text, link, reposted post). Two accounts are linked when they post the same content within `WINDOW_SECONDS` on at least `MIN_SHARED` separate occasions; one shared post never links anyone, which keeps breaking news and viral posts out. Linked groups of at least `MIN_SIZE` accounts are swarms. `evaluate()` gives account-level precision, recall and false-positive rate from the `coordinated` labels.
 - `backend/swarm/synthetic.py`: simulated posts with known swarms and innocent look-alikes, for tests only.

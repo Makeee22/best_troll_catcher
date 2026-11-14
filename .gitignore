@@ -6,9 +6,14 @@
 # Junction reference material: contains personal data and other partners' keys
 Junction Platform.txt
 kaikki.pdf
+techpartners.txt
 
 # Raw datasets stay out of git; data/README.md says where they come from
 data/raw/
+
+# Cresci 2017 Twitter bot dataset: research-only licence (redistribution is
+# prohibited without its disclaimer), personal data of real accounts, over 1 GB
+backend/data/
 
 # Python
 __pycache__/

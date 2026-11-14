@@ -1,5 +1,7 @@
 # API contract
 
+> **Changing on 14.11.** This file describes the first skeleton, which is still what `main` runs. The core that replaces it has a new input format (two CSV files) and a new output (`confidence` instead of `verdict`). Both are specified in `docs/core-design.md`, sections "Input format" and "Output". Build new front-end work against those. This file is rewritten when the core lands.
+
 The only meeting point between the front end and the backend. Owner: backend (Arde1001). The backend changes this file and the code together, and tells the front-end owner.
 
 - All endpoints are `GET`, return JSON, need no login, and allow any origin (CORS).
