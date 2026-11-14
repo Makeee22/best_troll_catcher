@@ -163,7 +163,7 @@ async function showResult(listing, context) {
     return;
   }
   renderSource(listing, countFlagged());
-  renderFlagged(listing.swarms, listing.parameters || {});
+  renderFlagged(listing.swarms, listing.parameters || {}, listing.diagnostics);
   if (listing.swarms.length) $("swarm-map").replaceChildren(renderSwarmMap(listing.swarms));
 }
 
@@ -328,11 +328,14 @@ function renderSignals(signals, params) {
       (params.similar_text ? " The similar-text layer was on." : "")));
 }
 
-function renderFlagged(swarms, params) {
+function renderFlagged(swarms, params, diagnostics) {
   if (!swarms.length) {
+    const reasons = (diagnostics && diagnostics.reasons) || [];
     $("flagged").replaceChildren(h("p", null,
       "No group of accounts reached confidence " + (params.min_confidence ?? "") + " in this data, so no account is flagged. " +
-      "With few comments the chance test rarely links anyone; that is on purpose."));
+      "With few comments the chance test rarely links anyone; that is on purpose."),
+      reasons.length ? h("h3", null, "Why nothing was found") : null,
+      reasons.length ? h("ul", { class: "reasons" }, reasons.map((r) => h("li", null, String(r.text || "")))) : null);
     return;
   }
   const all = [];
@@ -557,7 +560,8 @@ function renderDetail(d) {
         h("th", null, "Flagged"))),
       h("tbody", null, [...d.accounts.filter(isFlagged), ...d.accounts.filter((a) => !isFlagged(a))].map((a) =>
         h("tr", isFlagged(a) ? null : { class: "linked" },
-          h("td", null, a.username), h("td", { class: "num" }, fmtPct(a.copied_share)),
+          h("td", null, a.username, a.thread_only ? h("span", { class: "muted", title: "Every post of this account is in this one thread (no history), so its replies were not counted as evidence." }, " (seen in this thread only)") : null),
+          h("td", { class: "num" }, fmtPct(a.copied_share)),
           h("td", null, isFlagged(a) ? "yes" : "no, only linked")))))),
     h("h3", null, "Who is linked to whom"),
     names.length <= 24 ? renderGraph(names, edges, swarmColor(d.id), new Set(d.accounts.filter((a) => !isFlagged(a)).map((a) => a.username))) : h("p", { class: "muted" }, "Too many accounts for the picture; see the table."),

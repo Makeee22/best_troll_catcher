@@ -245,7 +245,8 @@ sharing the same content (texts, links, reposts, replies) far more often than ch
 a short evidence block per group (S1, S2, ...). Write for a moderator or journalist who is not a statistician.
 
 Rules:
-- Use ONLY the evidence given; cite ids (R1, S1, S1.E1, ...). Do not invent facts, names, motives or links.
+- Use ONLY the evidence given; cite ids (R1, D1, S1, S1.E1, ...). D lines are the detector's own reasons why the result looks
+  as it does; use them above all to explain an empty result. Do not invent facts, names, motives or links.
 - If no group was found, explain plainly that this is the expected answer for an ordinary discussion and what the detector
   could and could not have seen (signals used, number of accounts and comments); never hint that something is hidden.
 - For each group say what it APPEARS to do and how strong the evidence is, judged from the evidence as a whole (how many
@@ -279,6 +280,8 @@ def build_result_evidence(result):
     if at.get("precision") is not None:
         lines.append(f"R5: measured against labels in the data: precision {at['precision']}, recall {at['recall']}, "
                      f"false-positive rate {at['false_positive_rate']} (the cut was chosen with labels visible)")
+    for k, r in enumerate(((result.get("diagnostics") or {}).get("reasons") or [])[:8], 1):   # aggregates only (handoff 6f.1)
+        lines.append(f"D{k}: {str(r.get('text') or '')[:300]}")
     for i, c in enumerate(clusters[:MAX_RESULT_SWARMS], 1):
         _, clean = _pseudonymise(c)
         accounts = c.get("accounts") or []

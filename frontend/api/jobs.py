@@ -76,6 +76,7 @@ def _public(job):
         r = job["result"]
         out["listing"] = {
             "source": r["source"], "parameters": r["parameters"], "signals": r["signals"], "warnings": r["warnings"],
+            "diagnostics": r.get("diagnostics"), "collection": r.get("collection"),   # handoff 6f.1, docs/api.md
             "swarms": [{"id": c["id"], "size": c["size"], "confidence": c["confidence"], "edge_count": c["edge_count"],
                         "first_seen": c["first_seen"], "last_seen": c["last_seen"],
                         "sample": c["top_items"][0] if c["top_items"] else None,
@@ -259,7 +260,7 @@ def _run_link(job, url, analysis_lock):
         history = BLUESKY_HISTORY if bluesky.is_bluesky(url) else HISTORY
         before = _collector.credits_used
         try:
-            bundle = swarm_collect.collect(url, history=history, max_participants=MAX_PARTICIPANTS,
+            bundle = swarm_collect.collect(url, history=history, max_participants=None,   # the collector's own cap per site (handoff 6f.2)
                                            on_progress=progress, client=_collector)
         finally:
             job["credits_used"] = _collector.credits_used - before
