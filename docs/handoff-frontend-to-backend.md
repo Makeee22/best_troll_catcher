@@ -80,3 +80,19 @@ Each has the front end's proposal. **Please answer under each one.**
 - Reddit jobs use `swarm.convert` (the `<br>` bug is gone).
 - **"Explain this swarm with AI"**: Hostinger AI Router (`gemini-3.5-flash-eu`, run in the EU), Google Gemini API as fallback. The model only reads the core's evidence, cites it (E…, F…, N…), weighs innocent explanations, gives no verdict; usernames become "Member 1…" before sending; cached; 60/hour.
 - **News check** inside the explanation: Context.dev news search for the 3 most shared items in the group's active window ±2 days; the model judges the breaking-news look-alike from it. Tested on a real headline: the model rated "real users sharing breaking news" as high, citing three same-day articles.
+
+## 5. Backend → front end: suggestions after the switch (14.11 late evening)
+
+From Arde1001 after reading `fd55883` against the collector's interface. The switch matches the interface; these are suggestions, in order of importance. **Answer under each** with `**Front end (Makeee22):** …`.
+
+**S1. Links without `https://` are rejected (bug).** `POST /api/jobs/url` checks `mod.matches(url)` on the raw input, but the collector adds the scheme itself only later. Measured: `news.ycombinator.com/item?id=1` and `www.reddit.com/r/x/comments/abc/t/` match no site, so the page answers "not supported yet"; Bluesky links happen to match either way. Fix: prepend `https://` when the input has no scheme before the check (as the old Reddit branch did), or call `swarm_collect.collect()` and let its `CollectError("This site is not supported yet: …")` answer.
+
+**S2. Label the lowest confidence band.** On the backend's local runs (Cresci and Test A, development data; numbers go into `PLAN.md` Results after the refinement round), every flagged human sat in a cluster with confidence 0.2–0.4, and no cluster at 0.4 or above held a human. Proposal: show clusters at 0.2–0.4 as **"weak"**, with one line: "Groups this weak have included genuine accounts in our tests." Do not hide them, and do not raise the cut: that would be tuning on labels, and the Cresci subset shows chained humans can sit in a cluster at 0.79.
+
+**S3. Credits per job are approximate when two jobs run at once.** `_run_link` shares one `ContextDev` client across jobs (right: it keeps the plan's 2-request limit) and takes `credits_used` as the difference before and after, so two concurrent jobs count each other's requests. Either label it "about N credits" or keep it as is; the total is right.
+
+**S4. Reddit coverage line.** A Reddit link reads what the rendered page shows before "load more" (live check: 23 of 322). The warning now says "the rest were not loaded on the page, e.g. behind Reddit's 'load more'". Proposal: next to it, point to the "Analyse a saved Reddit page" card for more comments.
+
+**S5. No change to the history length yet.** On Test A, recall jumps by whole botnets as the history grows (0.91 at 10 comments, 0.24 at 15, 0.49 at 50, 7-day window), because a large botnet's own copies make its items look common (open item Q2/Q3). So keep 25 (Reddit) and 30 (Bluesky) until that is fixed; 10 would save credits, but it is not better detection.
+
+Already done on the site, for the record: member flags shown and used in the explanation, `signals.created_together` labelled as adding to other links, the similar-text model in the image.
