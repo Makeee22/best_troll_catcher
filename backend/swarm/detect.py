@@ -130,7 +130,9 @@ def detect(con, *, min_shared=MIN_SHARED, alpha=ALPHA, min_size=MIN_SIZE, pair_b
 
     con.execute("create or replace table df as select kind, key, count(*) as df from item group by kind, key")
     con.execute("create or replace table n as select username, kind, count(*) as n from item group by username, kind")
-    con.execute("create or replace table s as select kind, sum(df::double * df) / (sum(df)::double * sum(df)) as s from df group by kind")
+    # chance that two different posts of one kind are the same item (unbiased: a post never matches itself)
+    con.execute("create or replace table s as select kind, sum(df::double * (df - 1)) / nullif(sum(df)::double * (sum(df) - 1), 0) as s "
+                "from df group by kind")
 
     max_sharers = _max_sharers(con, pair_budget)
     left_out = con.execute("select count(*) from df where df > ?", [max_sharers]).fetchall()[0][0]

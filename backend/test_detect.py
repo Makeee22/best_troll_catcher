@@ -76,6 +76,13 @@ def test_one_shared_long_text_links_a_cluster(tmp_path, make_csv):
     assert con.execute("select count(*) from item where kind <> 'text' and words is not null").fetchall() == [(0,)]
 
 
+def test_a_shared_long_text_is_not_hidden_by_many_own_posts(tmp_path, make_csv):
+    # the chance of a match counts pairs of different posts, so a post never "matches" itself
+    rows = one_text("abc", 12) + unique("a", 60) + unique("b", 60) + unique("c", 60) + background(300, 20)
+    con, _, _ = run(tmp_path, make_csv, rows)
+    assert clusters(con) == [{"a", "b", "c"}]
+
+
 def test_the_long_text_rule_can_be_switched_off(tmp_path, make_csv):
     for off in (None, 0):
         con, _, _ = run(tmp_path, make_csv, trio(12), long_words=off)

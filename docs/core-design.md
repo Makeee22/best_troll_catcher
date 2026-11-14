@@ -120,7 +120,7 @@ Without `username` there are no accounts to group. Without any of the four conte
    - `reply`: the parent comment's id.
 3. **Count** how many accounts have each item, and how many items each account has, per signal.
 4. **Pair** accounts that share an item. For each pair and signal: the number of different items they share.
-5. **Test against chance.** If accounts picked items at random, with popular items picked more often, a pair with `n1` and `n2` items would share about `n1 × n2 × S` of them, where `S` measures how concentrated the signal is on popular items. The test asks how likely the real count is under that assumption. A viral post raises `S`, so sharing it proves little. The cut-off for "unlikely enough" is set from all tested pairs at once (Benjamini-Hochberg, false discovery rate 1%), so it adapts to the size of the dataset.
+5. **Test against chance.** If accounts picked items at random, with popular items picked more often, a pair with `n1` and `n2` items would share about `n1 × n2 × S` of them, where `S` is the chance that two different posts of that signal are the same item (counted over pairs of different posts, so a post never matches itself), which measures how concentrated the signal is on popular items. The test asks how likely the real count is under that assumption. A viral post raises `S`, so sharing it proves little. The cut-off for "unlikely enough" is set from all tested pairs at once (Benjamini-Hochberg, false discovery rate 1%), so it adapts to the size of the dataset.
 6. **Link** a pair when it passes the test and shares at least 2 items in one signal, or one text of at least 10 words. One shared repost, link, reply or short text never links anyone. (The long-text rule was added on 14.11 after measuring it: see `PLAN.md`, Results.)
 7. **Group** linked accounts. A group of at least 3 accounts is a cluster.
 8. **Confidence** of a cluster: for each member, the share of its items that another member also has; then the average over members. A cluster is reported when its confidence is at least 0.2.
@@ -194,7 +194,7 @@ One JSON document, the same from the command line and the API. It is self-contai
 - **Loose groups are missed.** Accounts that share under 20% of their content with each other fall below the default cut. Measured with planted swarms: 6 copied messages are found with up to 24 own posts per member and missed with 30.
 - **Small data proves little.** With few comments the chance test rarely passes, by design. The long-text rule helps most here: on Cresci thinned to 10 comments per account, recall went from 0.12 to 0.78.
 - **All signals share one chance test.** A signal that adds many weak pairs makes the test stricter for every signal. A trial near-duplicate signal lowered recall on thinned data for this reason and was not adopted.
-- **Big swarms hide small evidence.** A large swarm's own copies raise `S`, which makes every other pair look less surprising.
+- **Big swarms hide small evidence.** A large swarm's own copies raise `S`, which makes every other pair look less surprising. Measured in Test A: when most accounts in a time window belong to one botnet, recall falls as each account's history grows (0.94 at 10 comments per account, 0.36 at 20). Estimating `S` again without the accounts already found fixes that but flags most humans on the full data (PLAN.md Results).
 - **The profile file adds evidence only,** not confidence. See finding 5.
 - **Timing is not used for linking.** A swarm that shares nothing but reacts within seconds is not found.
 
