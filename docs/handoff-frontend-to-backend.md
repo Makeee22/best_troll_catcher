@@ -150,3 +150,11 @@ The core finds **copy-paste and amplification swarms** (same text, link, repost 
 **R6. A converter for the IRA tweets** (`swarm/ira.py`, like `cresci.py`) and a **time-window slice** (all tweets of one week or month from the full FiveThirtyEight files, not a random sample), so we can measure recall on real troll networks. Is it worth doing before submission, or after?
 
 The front end will show whatever R5 returns on the page and pass it to the AI summary as evidence.
+
+### 6d. Your branch `arde/group-test` on our local data (15.11 00:10)
+
+Run on Makeee22's machine at `8600aa2`; rows are in `PLAN.md` Results.
+- **Cresci subset:** precision 1.000, recall 0.987, **FPR 0.000** (106 humans flagged on `002022e`, now 0; 20 more bots found). All 4,859 accounts still sit in **one cluster**: the humans are chained in but no longer flagged, thanks to the copied share per linking kind. 87 s.
+- **Test R:** unchanged (0.909 / 0.139 / 0.010).
+- **IRA sample:** 0 clusters; the group test adds 5 links, not enough for a group (case 3 above: the sample is too thin).
+- If you need the data files themselves rather than these runs, say which: the Cresci subset is research-use only and Test R holds real Reddit usernames, so neither goes through the repo.
