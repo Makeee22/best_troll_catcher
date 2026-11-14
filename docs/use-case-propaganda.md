@@ -34,13 +34,16 @@ that; they would have to open every participant's history and compare them by ha
    - **what they share most**: the exact message, link or post, how many members, first and last time seen;
    - **how fast copies follow each other** (seconds = automation or a scheduled campaign);
    - **accounts created together** (within 30 days) and accounts that **say they are automated**;
-   - a **graph** of who is linked to whom.
-5. **"Explain this swarm with AI"** (optional): a language model reads only that evidence, with usernames replaced by
+   - a **graph** of who is linked to whom, and a **swarm map** above it: every swarm as one bubble, one dot per account
+     (coloured = flagged, white = only linked); click a bubble to open its evidence.
+5. **"Explain this result with AI"** (optional, one button for the whole result) and **"Explain this swarm with AI"**: a language model reads only that evidence, with usernames replaced by
    "Member 1…", and writes in plain language what the group *appears* to do (push a narrative, amplify a link…). It
    must cite the evidence, weigh innocent explanations, and give no verdict. A **news check** (Context.dev news search)
    tells whether the shared message was simply real breaking news that everyone posted.
 6. **Act on it**: the result has a private link (deleted after 3 hours) to send to a moderator or editor, who checks the
-   flagged accounts and decides. The tool gives a lead with evidence, never a ban list.
+   flagged accounts and decides. It is a **monitoring** tool (team decision B15): the page says "Flagged accounts are
+   worth watching, not proven bots. Some of them are real people. Use this to monitor accounts, never to ban or restrict
+   them." The tool gives a lead with evidence, never a ban list.
 
 ## Example story for the demo (synthetic data, say so on screen)
 
@@ -53,9 +56,24 @@ that; they would have to open every participant's history and compare them by ha
 > *appears to be pushing one message*, cites the identical texts and the seconds-long gaps, and weighs innocent
 > explanations (a real campaign, a common phrase) without giving a verdict.
 
-Use the **synthetic demo** on the site for this (it opens by default and is labelled synthetic; the news check is
-skipped on synthetic data). No real thread we tested contained a swarm, which is itself the honest result for
-ordinary discussions. To show *linked, not flagged* members, use the numbers from the Cresci subset row (160 of the
+**How to get it on screen** (since 14.11 23:41 the site opens empty, with no demo data):
+
+1. Download the two sample files from the live site:
+   https://swarm.srv2159299.hstgr.cloud/samples/synthetic_comments.csv and
+   https://swarm.srv2159299.hstgr.cloud/samples/synthetic_profiles.csv
+2. On the site, open the **"Your own CSV"** tab, choose both files and press **Analyse**.
+3. The result says "Synthetic data" (yellow badge and note); keep it visible in the video. The news check is skipped on
+   synthetic data. The swarm map shows 3 bubbles: the 3-account WIRE feed (confidence 1.00) and the 8- and 5-account
+   swarms (0.38). Low confidence here is not "weak": confidence is how much of their posts the group shares, not a
+   probability (handoff S6).
+4. Press **"Explain this result with AI"** in the Summary window for the one-paragraph AI summary, then click the
+   8-account bubble on the map and **"Explain this swarm with AI"** for the detail.
+
+No real thread we tested contained a swarm, which is itself the honest result for ordinary discussions. A real
+example worth showing as a limit: a crypto "shill" thread where 22 accounts praise a coin within 90 minutes, each in
+its own words. The site finds nothing, because nobody copied anyone (0 identical texts, no pair of comments above the
+similar-text cut; the closest pair is 0.60 against 0.90). The tool finds copy-paste and amplification swarms, not a
+raid where everyone writes their own sentence. To show *linked, not flagged* members, use the numbers from the Cresci subset row (160 of the
 266 bridged humans no longer flagged), not a screenshot of real accounts.
 
 ## Why judges can trust it (measured, labels used only to measure)
