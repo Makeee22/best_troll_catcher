@@ -113,9 +113,9 @@ def test_unsupported_site():
         collect("https://example.test/some/page", client=FakeClient())
 
 
-def test_bluesky_bundle_keeps_responses_unchanged_as_json_pages():
+def test_bluesky_bundle_keeps_the_thread_unchanged_and_fetches_histories_directly():
     progress = []
-    client = FakeClient(bluesky_routes())
+    client = FakeClient(bluesky_routes(), bluesky_routes())
     bundle = collect(POST_LINK, history=5, on_progress=lambda d, t: progress.append((d, t)), client=client)
     assert bundle["site"] == "bluesky" and bundle["url"] == POST_LINK and bundle["collected_at"].endswith("Z")
     pages = bundle["pages"]
@@ -125,7 +125,8 @@ def test_bluesky_bundle_keeps_responses_unchanged_as_json_pages():
     assert len(feeds) == 4 and all(p["role"] == "profile" for p in feeds + profile_pages)
     assert [len(p["json"]["profiles"]) for p in profile_pages] == [4]
     assert progress == [(1, 4), (2, 4), (3, 4), (4, 4)]
-    assert all("limit=5" in c[1] for c in client.calls if "getAuthorFeed" in c[1])
+    feeds_called = [c for c in client.calls if "getAuthorFeed" in c[1]]
+    assert feeds_called and all(c[0] == "direct" and "limit=100" in c[1] for c in feeds_called)   # a window: read 100, keep 5
     t = bundle["thread"]
     assert (t["platform"], t["post_id"], t["commenters"], t["commenters_fetched"], t["history_per_commenter"]) == \
         ("Bluesky", ROOT["uri"], 4, 4, 5)
@@ -133,17 +134,17 @@ def test_bluesky_bundle_keeps_responses_unchanged_as_json_pages():
     cov = bundle["coverage"]
     assert cov["comments_found"] == 3 and cov["comments_expected"] == 4     # sum of replyCount: 3 + 1
     assert any("1 could not be" in n or "deleted, hidden or blocked" in n for n in cov["notes"])
-    assert bundle["credits_used"] == len(client.calls)
+    assert bundle["credits_used"] == sum(c[0] == "json" for c in client.calls)
 
 
 def test_bluesky_participant_cap_and_failed_histories_are_noted_and_skipped():
-    client = FakeClient(bluesky_routes(fail={"did:plc:bob"}))
+    client = FakeClient(bluesky_routes(fail={"did:plc:bob"}), bluesky_routes(fail={"did:plc:bob"}))
     bundle = collect(POST_LINK, history=5, max_participants=3, client=client)
     t = bundle["thread"]
     assert (t["commenters"], t["commenters_fetched"], t["histories_ok"], t["histories_failed"]) == (4, 3, 2, 1)
     assert sum(1 for p in bundle["pages"] if "feed" in p.get("json", {})) == 2
     notes = " ".join(bundle["coverage"]["notes"])
-    assert "first 3" in notes and "1 participants could not be fetched" in notes
+    assert "3 most active" in notes and "1 participants could not be fetched" in notes
 
 
 def test_bluesky_post_not_found():
@@ -156,7 +157,7 @@ def test_bluesky_post_not_found():
 
 
 def test_bluesky_bundle_converts_and_broken_handles_become_the_did():
-    bundle = collect(POST_LINK, history=5, client=FakeClient(bluesky_routes()))
+    bundle = collect(POST_LINK, history=5, client=FakeClient(bluesky_routes(), bluesky_routes()))
     comments, profiles, _ = convert(bundle)
     names = {c["username"] for c in comments}
     assert "did:plc:carol" in names and "alice.example.test" in names
@@ -547,3 +548,50 @@ def test_history_and_participants_are_clamped():
         return {"hits": []} if "search_by_date" in url else HN_ITEM
     bundle = collect(HN_LINK, history=500, max_participants=0, client=FakeClient(direct_routes=route))
     assert bundle["thread"]["history_per_commenter"] == 100 and bundle["thread"]["commenters_fetched"] == 1
+
+
+# --- histories around the thread's date, most active first (handoff R2, R3) --------------------
+
+def test_bluesky_history_pages_back_to_the_threads_date_and_keeps_the_posts_near_it():
+    from swarm.collect.bluesky import _history
+    from swarm.collect.around import when, window
+    day = lambda d: f"2026-10-{d:02d}T12:00:00Z"
+    pages = {None: {"feed": [{"post": bpost("x", "new", f"n{d}", created=day(d))} for d in (30, 29, 28)], "cursor": "c1"},
+             "c1": {"feed": [{"post": bpost("x", "near", f"m{d}", created=day(d))} for d in (16, 15, 14, 3)], "cursor": "c2"}}
+    client = FakeClient(direct_routes=lambda url: pages.get(parse_qs(urlparse(url).query).get("cursor", [None])[0], {"feed": []}))
+    url, got = _history(client, {}, "did:plc:x", 2, window(when(day(15))))
+    assert [f["post"]["record"]["createdAt"] for f in got["feed"]] == [day(15), day(16)]     # nearest first, at most 2
+    assert len(client.calls) == 2 and "cursor" not in url                                   # stopped: day 3 is before the window
+    _, none_near = _history(client, {}, "did:plc:x", 2, window(when("2025-01-01T00:00:00Z")))
+    assert [f["post"]["record"]["text"] for f in none_near["feed"]] == ["new", "new"]       # nothing near: the newest
+
+
+def test_hn_history_asks_for_the_threads_window_then_the_newest():
+    seen = []
+
+    def route(url):
+        q = parse_qs(urlparse(url).query)
+        if "search_by_date" not in url:
+            return {**HN_ITEM, "created_at_i": 1_700_000_000}
+        seen.append(q.get("numericFilters", [None])[0])
+        if q.get("numericFilters") and "cy" in q["tags"][0]:
+            return {"hits": []}
+        return {"hits": [{"objectID": "9" + q["tags"][0], "author": "x", "comment_text": "w", "story_id": 1}]}
+    bundle = collect(HN_LINK, history=5, client=FakeClient(direct_routes=route))
+    assert f"created_at_i>={1_700_000_000 - 7 * 86400},created_at_i<={1_700_000_000 + 7 * 86400}" in seen
+    assert seen.count(None) == 1 and bundle["thread"]["histories_ok"] == 4                 # cy had none near: newest
+
+
+def test_the_most_active_commenters_get_a_history_first():
+    client = FakeClient(direct_routes=hn_routes())
+    bundle = collect(HN_LINK, history=5, max_participants=1, client=client)
+    assert [c[1] for c in client.calls if "search_by_date" in c[1]][0].count("author_ann") == 1   # ann wrote 2 comments
+    assert bundle["thread"]["commenters"] == 4 and bundle["thread"]["commenters_fetched"] == 1
+    from swarm.collect.around import most_active
+    assert most_active(["b", "a", "c", "a", "c", "d"]) == ["a", "c", "b", "d"]
+
+
+def test_free_apis_default_to_500_participants_reddit_to_150():
+    from swarm.collect import bluesky, hackernews, reddit
+    assert bluesky.MAX_PARTICIPANTS == hackernews.MAX_PARTICIPANTS == 500
+    assert getattr(reddit, "MAX_PARTICIPANTS", 150) == 150

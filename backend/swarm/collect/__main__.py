@@ -16,8 +16,9 @@ def main(argv=None):
     parser.add_argument("url", help="a link to a discussion (see docs/collect-interface.md for the supported sites)")
     parser.add_argument("out_dir", help="directory for bundle.json, comments.csv, profiles.csv and result.json")
     parser.add_argument("--history", type=int, default=25, help="newest posts fetched per commenter (default 25)")
-    parser.add_argument("--max-participants", type=int, default=150,
-                        help="commenters whose history is fetched (default 150); the rest are judged on their thread posts")
+    parser.add_argument("--max-participants", type=int, default=None,
+                        help="commenters whose history is fetched, most active first (default 500 on Bluesky and Hacker "
+                             "News, 150 on Reddit); the rest are judged on their thread posts")
     parser.add_argument("--no-similar-text", action="store_true", help="skip the reworded-copies signal")
     args = parser.parse_args(argv)
     try:

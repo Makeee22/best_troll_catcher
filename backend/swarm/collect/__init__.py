@@ -26,13 +26,15 @@ def _normalise(url):
     return url if re.match(r"^https?://", url, re.I) else "https://" + url
 
 
-def collect(url, *, history=25, max_participants=150, on_progress=None, client=None):
+def collect(url, *, history=25, max_participants=None, on_progress=None, client=None):
     """The raw bundle for a link (docs/collect-interface.md). Raises CollectError with a message for the user."""
     url = _normalise(url)
     site = next(((name, mod) for name, mod in SITES if mod.matches(url)), None)
     if site is None:
         raise CollectError(f"This site is not supported yet: {re.sub(r'^https?://', '', url).split('/')[0]}")
-    history, max_participants = max(1, min(int(history), MAX_HISTORY)), max(1, int(max_participants))
+    # by default every site's own cap: 500 where histories are free (Bluesky, Hacker News), 150 on Reddit (credits)
+    history = max(1, min(int(history), MAX_HISTORY))
+    max_participants = max(1, int(getattr(site[1], "MAX_PARTICIPANTS", 150) if max_participants is None else max_participants))
     client = client or ContextDev.from_env()
     before = client.credits_used
     got = site[1].collect(url, client, history, max_participants, on_progress)

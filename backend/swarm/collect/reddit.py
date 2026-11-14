@@ -9,6 +9,7 @@ import re
 from concurrent.futures import ThreadPoolExecutor
 
 from ..convert import ConvertError, convert
+from .around import most_active
 from .contextdev import CollectError
 
 THREAD_URL = re.compile(r"^https?://(?:[\w-]+\.)?reddit\.com/(?:r/[^/]+/)?comments/([A-Za-z0-9]+)", re.I)
@@ -42,7 +43,7 @@ def collect(url, client, history, max_participants, on_progress):
     except ConvertError:
         raise CollectError("No comments found on that Reddit page.") from None
     rows = [r for r in rows if r["comment_id"] != post["id"]]      # the converter also returns the post itself
-    people = list(dict.fromkeys(r["username"] for r in rows))
+    people = most_active([r["username"] for r in rows])
     names = [n for n in people if USERNAME.match(n) and n.lower() not in SKIP][:max_participants]
     pages = [{"url": url, "role": "thread", "html": page}]
 
