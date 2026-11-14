@@ -40,7 +40,7 @@ def is_anonymous(name):
 
 
 def _bare(cid):
-    return re.sub(r"^t[13]_", "", cid or "")
+    return re.sub(r"^t[13]_", "", str(cid or ""))  # ids may arrive as numbers
 
 
 def _key(r):
@@ -73,10 +73,11 @@ def merge(rows, profiles):
     warnings, kept, anonymous, empty = [], [], 0, 0
     for r in rows:
         r = dict(r, comment_id=_bare(r.get("comment_id")), parent_id=_bare(r.get("parent_id")),
+                 username=str(r.get("username") or ""), text=str(r.get("text") or ""),
                  timestamp=iso_utc(r.get("timestamp")))
         if is_anonymous(r["username"]):
             anonymous += 1
-        elif not (r.get("text") or "").strip():
+        elif not r["text"].strip():
             empty += 1
         else:
             kept.append(r)
@@ -109,7 +110,9 @@ def merge(rows, profiles):
             comments.append(r)
     for r in comments:
         r["parent_id"] = alias.get(r["parent_id"], r["parent_id"])
-    return comments, _merge_profiles(profiles), warnings
+    # display_name lives on comment rows; the core reads it from profiles
+    named = [{"username": r["username"], "display_name": r["display_name"]} for r in comments if r.get("display_name")]
+    return comments, _merge_profiles(profiles + named), warnings
 
 
 def _read_source(src, page_url):
@@ -117,9 +120,9 @@ def _read_source(src, page_url):
     url = src.get("url") or page_url
     rows, profiles, notes = sites.from_parsed(src["parsed"], url) if src.get("parsed") else ([], [], [])
     if not rows and src.get("html"):
-        rows, profiles, notes = sites.from_html(src["html"], url)
-        if not rows:
-            rows = schemaorg.from_html(src["html"], url)
+        more_rows, more_profiles, more_notes = sites.from_html(src["html"], url)
+        rows = more_rows or schemaorg.from_html(src["html"], url)
+        profiles, notes = profiles + more_profiles, notes + more_notes
     return rows, profiles, notes
 
 
@@ -128,7 +131,7 @@ def _history_rows(histories):
     for h in histories:
         if h.get("status") == "failed":
             continue
-        user = h.get("username") or ""
+        user = str(h.get("username") or "")
         for i in h.get("items") or []:
             rows.append({"comment_id": i.get("id"), "username": user, "display_name": "", "text": i.get("text"),
                          "timestamp": i.get("timestamp"), "parent_id": i.get("parent_id"),

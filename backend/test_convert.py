@@ -3,6 +3,8 @@ import json
 
 import pytest
 
+from swarm import convert as convert_module
+from swarm.core import analyze
 from swarm.convert import ConvertError, convert, is_anonymous, iso_utc, main, merge
 
 COMMENT_COLUMNS = ["comment_id", "username", "text", "timestamp", "parent_id", "thread_id"]
@@ -100,6 +102,8 @@ def test_cli_writes_both_files_from_a_bundle_with_histories(tmp_path, capsys):
         assert reader.fieldnames == PROFILE_COLUMNS
         assert [r["created_at"] for r in reader] == ["2015-01-01T00:00:00Z"]
     assert "2 comments" in capsys.readouterr().out
+    result = analyze(str(out / "comments.csv"), str(out / "profiles.csv"))  # the core must load what we write
+    assert result["source"]["comments"] == 2
 
 
 def test_cli_errors_exit_2(tmp_path, capsys):
@@ -108,3 +112,26 @@ def test_cli_errors_exit_2(tmp_path, capsys):
     assert main([str(page), str(tmp_path / "out")]) == 2
     assert "error: no comments found" in capsys.readouterr().err
     assert main([str(tmp_path / "missing.json"), str(tmp_path / "out")]) == 2
+
+
+def test_comment_display_name_reaches_profiles():
+    named = dict(row("1", "u123", "hi"), display_name="Helpful Bot")
+    _, profiles, _ = merge([named], [])
+    assert profiles == [{"username": "u123", "display_name": "Helpful Bot", "created_at": "", "post_count": ""}]
+
+
+def test_fall_through_to_html_keeps_parsed_profiles_and_notes(monkeypatch):
+    profile = {"username": "p", "display_name": "", "created_at": "2020-01-01T00:00:00Z", "post_count": ""}
+    monkeypatch.setattr(convert_module.sites, "from_parsed", lambda parsed, url: ([], [profile], ["parsed note"]))
+    monkeypatch.setattr(convert_module.sites, "from_html", lambda html, url: ([row("1", "dave", "hi")], [], ["html note"]))
+    comments, profiles, warnings = convert({"url": "u", "pages": [{"parsed": {"type": "x"}, "html": "<p>x</p>"}]})
+    assert [c["username"] for c in comments] == ["dave"]
+    assert [p["username"] for p in profiles] == ["p"]
+    assert "parsed note" in warnings and "html note" in warnings
+
+
+def test_integer_ids_and_names_do_not_crash():
+    bundle = {"url": "u", "pages": [], "histories": [{"username": 42, "status": "ok", "items": [
+        {"id": 1, "text": "one", "parent_id": 0}, {"id": 2, "text": "two", "parent_id": 1}]}]}
+    comments, _, _ = convert(bundle)
+    assert [(c["comment_id"], c["username"], c["parent_id"]) for c in comments] == [("1", "42", ""), ("2", "42", "1")]
