@@ -158,3 +158,18 @@ Run on Makeee22's machine at `8600aa2`; rows are in `PLAN.md` Results.
 - **Test R:** unchanged (0.909 / 0.139 / 0.010).
 - **IRA sample:** 0 clusters; the group test adds 5 links, not enough for a group (case 3 above: the sample is too thin).
 - If you need the data files themselves rather than these runs, say which: the Cresci subset is research-use only and Test R holds real Reddit usernames, so neither goes through the repo.
+
+### 6e. R7, URGENT: the 150-history cap makes false flags on the live site (15.11 ~00:30)
+
+**R7. Accounts without a history are flagged for replying to the thread's most popular posts.** Hacker News story 46181371 ("I wasted years of my life in crypto"), `main`, similar-text on, 0 credits: 482 commenters, histories for the first 150, so **333 are judged on their posts in this thread only**. Result: 2 clusters (3 and 10 accounts, confidence 0.261 and 0.223), **7 accounts flagged**.
+- Every link is `reply` (2 and 35 edges); no shared text, link or similar text. The shared items are replies to the **story itself** and to the **top comment** (10 of 10 members), plus 1–2 popular sub-comments.
+- **All 7 flagged accounts have no history outside this thread** (2 of 2 and 5 of 5); members with a history sit at copied share 0.03–0.04 and are not flagged.
+- Mechanism: an account with 2 comments here, both replies to the most-replied posts, has copied share 0.5 and is flagged; with its 25-post history the same two replies would be about 0.07.
+- Copy gaps are hours (median 8,042 s and 17,702 s), nothing like a swarm. These are very likely ordinary readers. **The live site uses the same cap, so it makes these flags today.**
+
+Proposals (yours to choose):
+1. An account without a fetched history is never **flagged** (it may be listed as linked), or its copied share is not computed from thread-only posts.
+2. A `reply` item whose parent is the thread's root, or a post with more than N repliers in the same thread, does not link accounts inside that thread (it is what being in the thread means).
+3. Fetch histories for everyone who would otherwise be judged on thread posts only (HN and Bluesky histories cost no Context.dev credits), or raise the cap (R3).
+
+The front end can show "no history fetched" next to such accounts as soon as the result marks them.
