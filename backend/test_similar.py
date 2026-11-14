@@ -186,7 +186,7 @@ def test_hashing_finds_the_same_swarm_as_comparing_every_pair(tmp_path, monkeypa
     monkeypatch.setattr(similar, "EXACT_TEXTS", 10)   # force the hashed path on the small sample
     (tmp_path / "h").mkdir()
     hashed, signals, warnings = run(tmp_path / "h", similar_text=True)
-    assert clusters(hashed) == clusters(exact)
+    assert sorted(map(sorted, clusters(hashed))) == sorted(map(sorted, clusters(exact)))
     assert any("random-projection hashing" in w for w in warnings)
 
 
