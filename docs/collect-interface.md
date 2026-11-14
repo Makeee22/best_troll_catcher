@@ -61,12 +61,18 @@ A JSON object, one per collected URL. The collector fills what it has; every fie
 
 The converter can rely on: UTF-8 strings; times in ISO 8601 UTC; usernames as the site shows them; no API keys or cookies anywhere in the bundle.
 
-## Status on 14.11 at 15:45
+## Status on 14.11 at 16:00
 
 | Site | Thread comments | Commenters' histories | Notes |
 |---|---|---|---|
 | Reddit | Only from a page saved in the browser (~25 comments; the rest behind "load more"). Context.dev's `reddit-post` parser returns an empty comment list (reported to Context.dev). | Yes: `reddit-user` parser, 25 newest comments, about 1 credit and 0.4 s each | Live on the site as "Analyse a Reddit thread" |
 | X / Twitter | 3 replies, then a login wall | 5–6 posts, then a login wall | Not usable without logging in |
-| Others | Not tested yet | | Next: sites whose full discussion is public without login (see `PLAN.md`) |
+| **Bluesky** | **Yes, complete:** the public API `app.bsky.feed.getPostThread` (no login) returned all 157 replies from 141 authors of a 142-reply post, nested replies included. Works through Context.dev (`web-scrape`, the JSON comes back inside the Markdown) and directly. | **Yes:** public `app.bsky.feed.getAuthorFeed` (posts, replies and reposts, with the author's `createdAt`); `app.bsky.actor.getProfiles` for bio and counts, 25 accounts per call | **Collector being built now** (front end). The user pastes a `bsky.app/profile/…/post/…` link. The best stand-in for X. |
+| **Hacker News** | **Yes, complete:** the public Algolia API `hn.algolia.com/api/v1/items/{id}` returned all 1,124 comments from 717 commenters of one story, with `parent_id` and times | Yes: Algolia search by author (`tags=comment,author_NAME`) | Collector next, after Bluesky |
+| Others | Not tested yet | | |
+
+### For the converter: do not trust Context.dev's model-based extraction for counts or structure
+
+Context.dev's `formats.json` (a model reads the page and fills a JSON schema) **miscounted** the Bluesky thread: it reported 45 replies from 45 authors, while parsing the same JSON ourselves gives 157 replies from 141 authors. Use it only to get a rough idea of a page. For the converter, parse the raw content (`html`, the JSON inside `markdown`, or `parsed` from a **prebuilt** parser, which is rule-based) yourself, and check counts against the site's own number (for example `replyCount`, `comment-count`) into `coverage`.
 
 Measured with planted swarms on a real Reddit background (26 commenters with 25-comment histories): copying swarms of 3–20 accounts are all found, reworded ones too with `--similar-text` after `c759a49`, and no real commenter is flagged. Details: `docs/findings-context-dev-and-subset.md`.
