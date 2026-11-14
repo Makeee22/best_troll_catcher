@@ -133,7 +133,7 @@ def test_bluesky_bundle_keeps_the_thread_unchanged_and_fetches_histories_directl
     assert (t["histories_ok"], t["histories_failed"]) == (4, 0)
     cov = bundle["coverage"]
     assert cov["comments_found"] == 3 and cov["comments_expected"] == 4     # sum of replyCount: 3 + 1
-    assert any("1 could not be" in n or "deleted, hidden or blocked" in n for n in cov["notes"])
+    assert any("1 could not be" in n or "does not return the other" in n for n in cov["notes"])
     assert bundle["credits_used"] == sum(c[0] == "json" for c in client.calls)
 
 
@@ -169,7 +169,7 @@ def test_run_gives_the_result_a_readable_label_and_puts_coverage_first():
     result, bundle = run(POST_LINK, similar_text=False, history=5, client=FakeClient(bluesky_routes()))
     assert result["source"]["comments_file"] == f"Bluesky thread {ROOT['uri']}"
     assert result["source"]["accounts"] == 4
-    assert any("deleted, hidden or blocked" in w for w in result["warnings"][:3])
+    assert any("does not return the other" in w for w in result["warnings"][:3])
     assert bundle["pages"][0]["role"] == "thread"
 
 

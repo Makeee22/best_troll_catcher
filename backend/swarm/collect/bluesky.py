@@ -156,7 +156,8 @@ def collect(url, client, history, max_participants, on_progress):
     notes = []
     if expected > found:
         notes.append(f"thread: Bluesky counts {expected} replies, {found} could be read; "
-                     f"the other {expected - found} are deleted, hidden or blocked")
+                     f"Bluesky's public API does not return the other {expected - found} (deleted, blocked, from removed "
+                     "accounts, or withheld; no public endpoint pages through them)")
     if len(people) > len(dids):
         notes.append(f"thread: {len(people)} participants, posts were fetched for the {len(dids)} most active; "
                      "the others are judged on their posts in this thread only")
