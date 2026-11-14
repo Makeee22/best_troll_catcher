@@ -25,6 +25,69 @@ Given a raw bundle, produce `comments.csv` and, when there is profile data, `pro
 
 `frontend/api/reddit_html.py` (a Reddit thread page saved from the browser → comments) and `contextdev.to_rows()` (Reddit histories → rows) were written before this split. **They belong in the converter half:** the backend owner may move or rewrite them; the front end will then call the backend's converter instead.
 
+### How to call the converter (for the front end)
+
+On `main` since 14.11 evening, for Reddit. The review parsers and schema.org follow. The API image already copies `backend/swarm`, so `from swarm.convert import …` works there.
+
+```python
+from swarm.convert import convert, write, ConvertError
+
+# 1. The saved thread page → its comments (cleaned), to know whose histories to fetch.
+thread = {"url": url, "site": "reddit", "pages": [{"url": url, "role": "thread", "html": page_text}]}
+comments, _, notes = convert(thread)            # raises ConvertError when the page has no comments
+authors = list(dict.fromkeys(c["username"] for c in comments))   # anonymous and [deleted] are already gone
+
+# 2. Each history as Context.dev returned it (contextdev.reddit_history keeps the comments unchanged):
+for h in histories:
+    if h["status"] != "failed":
+        thread["pages"].append({"url": f"https://www.reddit.com/user/{h['username']}", "role": "profile",
+                                "parsed": {"type": "reddit-user", "success": True,
+                                           "data": {"user": {"username": h["username"], "created_at": h.get("created_at")},
+                                                    "comments": h["comments"]}}})
+
+# 3. Write the two files and analyse them.
+comments_path, profiles_path, warnings = write(thread, work_dir)   # profiles_path is None when there are no profiles
+result = analyze(comments_path, profiles_path)
+result["warnings"] = warnings + result["warnings"]                 # "read 188 of 322 comments…", "left out 12 …"
+```
+
+- **What it replaces in `jobs.py`:** `reddit_html.parse_thread()` (step 1) and `contextdev.to_rows()` + `_write_csv()` (steps 2–3).
+- **Bug in `frontend/api/reddit_html.py` (live on the site now), for Makeee22:**
+  - **What:** its parser counts open tags inside a comment's text and closes the text on the matching end tag. A void tag such as `<br>` has no end tag, so the count never reaches zero. The parser then stays "inside" that comment and swallows every later `<shreddit-comment>` on the page.
+  - **Effect, measured on a real saved thread on 14.11:** 47 of the 188 comments on the page were read, so 141 commenters and their histories never reached the analysis, and one comment's text came out empty. The site's "read N of M comments" line undercounts the same way.
+  - **Fix:** switch to the converter (below), which reads all 188, or skip void tags (`br`, `img`, `hr`, `input`, `wbr`) in `handle_starttag`. The backend left the file unchanged because it is in `frontend/`.
+- **Why switch:** besides the bug, the converter drops anonymous and placeholder authors, strips quoted parent text from replies, and keeps a comment once when it appears in both the thread and a history. On that page it keeps 170 of the 188 comments; the rest are deleted or empty.
+- **The same comment in the thread and in a history** is kept once. Replies that point at it keep working, even if the two ids differed.
+- **`page_text`** is the page as a string: `raw.decode("utf-8", errors="replace")`.
+- **Errors:** `ConvertError` (a `ValueError`) has a message to show the user as it is.
+- **Command line:** `python -m swarm.convert page.html OUT_DIR` or `python -m swarm.convert bundle.json OUT_DIR`. Warnings go to stderr, and the exit code is 2 on an error.
+
+### Converter design
+
+Approved by the backend owner on 14.11 at about 18:00. It gets built after the website works end to end. It covers approaches A (site adapters) and B (schema.org markup); C (a generic repeated-block fallback) is an extra if time is left.
+
+- **One module, `backend/swarm/convert.py`:** standard library only, with no network access.
+  - `convert(bundle)` returns `(comment_rows, profile_rows, warnings)`.
+  - `python -m swarm.convert BUNDLE.json|PAGE.html OUT_DIR` writes the two CSV files. A saved page works without a bundle, so a local user can convert a page they saved themselves.
+- **Each page is read in this order:**
+  1. **Context.dev `parsed` output** when a mapper exists for its `type`. First Reddit; then the review parsers (Google Maps, App Store, Google Play, Tripadvisor, Yelp, G2).
+  2. **A site adapter that recognises the HTML.** First Reddit's `<shreddit-comment>`, moved over from `frontend/api/reddit_html.py`.
+  3. **schema.org `Comment` / `Review` / `DiscussionForumPosting` data** (JSON-LD or microdata) in the page and its `frames`.
+- **Then:**
+  - `histories[].items` become rows; `created_at` goes to `profiles.csv`.
+  - Duplicates are dropped by `comment_id`.
+- **Shared cleaning, because each of these would otherwise make false swarms:**
+  - Anonymous or removed authors are dropped and counted: `[deleted]`, "Anonymous", "Guest", "nimetön", "vieras".
+  - Quoted parent text (`blockquote`) is stripped from replies.
+  - Only exact text is used. No language model writes rows, so Context.dev's AI `json` format is not used for comments.
+  - Times become ISO UTC; relative times ("2 hours ago") become empty.
+  - A handle or profile URL is used before a display name, because two people can share a display name.
+- **Warnings:** `coverage` and the cleaning counts come back as warnings, which the front end adds to the result's `warnings`.
+- **Tests:** small hand-written fixture pages, marked synthetic. No real people's comments go into the repo.
+- **To check before building:**
+  - **Ids may not match between thread and history.** On 14.11 the `reddit-user` parser returned 13-character comment and parent ids (all starting `19r`), while a thread page has Reddit's 7-character ids (`oq7lyly`). If they really differ, a thread comment is not recognised in its author's history, and replies cannot point across the two.
+  - **Raw JSON from public APIs has no field yet.** A site's public JSON API (WordPress, Discourse) has nowhere to go in a page; add a `json` field to the page when it is needed.
+
 ## The raw bundle (the handover)
 
 A JSON object, one per collected URL. The collector fills what it has; every field except `url` and `pages` may be missing.
