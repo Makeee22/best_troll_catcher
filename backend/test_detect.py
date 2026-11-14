@@ -238,3 +238,15 @@ def test_confidence_counts_only_the_kinds_that_link_the_cluster(tmp_path, make_c
     con, _, _ = run(tmp_path, make_csv, rows)
     assert con.execute("select size, confidence from cluster").fetchall() == [(3, 1.0)]   # 6 of 36 posts over all kinds
     assert con.execute("select count(*) from member where copied_share = 1.0").fetchall()[0][0] == 3
+
+
+def test_a_few_text_links_do_not_bring_back_the_uncopied_text(tmp_path, make_csv):
+    # Fox8-23 as J0l3s measured it: a repost ring where a few member pairs also share text; weighting by links keeps the
+    # reposts in charge (all kinds counted equally: about 0.2, so it fell under a cut of 0.3)
+    rows = [{"username": u, "repost_of": f"post{i}"} for u in "abcdef" for i in range(6)]
+    rows += [row for u in "abcdef" for row in unique(u, 30)] + shared("ab", 2)
+    rows += [{"username": f"bg{k}", "repost_of": f"other{k}_{i}"} for k in range(40) for i in range(6)] + background(40, 10)
+    con, _, _ = run(tmp_path, make_csv, rows)
+    assert con.execute("select kind, count(*) from link group by kind order by kind").fetchall() == [("repost", 15), ("text", 1)]
+    [(size, confidence)] = con.execute("select size, confidence from cluster").fetchall()
+    assert size == 6 and confidence > 0.9

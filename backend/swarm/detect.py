@@ -307,18 +307,21 @@ def detect(con, *, min_shared=MIN_SHARED, alpha=ALPHA, min_size=MIN_SIZE, pair_b
         con.execute("create or replace temp table member_cluster as "
                     "select unnest(?::VARCHAR[]) as username, unnest(?::VARCHAR[]) as cluster",
                     [[u for g in groups for u in g], [i for g, i in zip(groups, ids) for _ in g]])
-        # Copied share over the kinds the cluster's links are made of: a botnet that reposts its own members and also
-        # writes text nobody copies (Fox8-23: confidence 0.24 over all kinds, 0.60 over reposts) is not diluted by it.
+        # Copied share per kind, weighted by how many of the cluster's links that kind carries: a botnet linked by reposts
+        # that also writes text nobody copies (Fox8-23: 0.24 over all kinds, 0.60 over reposts) is not diluted by it, even
+        # when a few member pairs are also linked by text. Kinds a member never posts in leave its average.
         con.execute("""
             insert into member
-            with lk as (select distinct a.cluster, l.kind from link l
+            with lw as (select a.cluster, l.kind, count(*)::double as w from link l
                         join member_cluster a on a.username = l.u1 join member_cluster b on b.username = l.u2
-                        where a.cluster = b.cluster),
+                        where a.cluster = b.cluster group by all),
             mi as (select mc.cluster, i.username, i.kind, i.key from item i join member_cluster mc using (username)
-                   join lk on lk.cluster = mc.cluster and lk.kind = i.kind),
+                   join lw on lw.cluster = mc.cluster and lw.kind = i.kind),
             cnt as (select cluster, kind, key, count(*) as k from mi group by all),
-            share as (select mi.username, mi.cluster, avg((cnt.k > 1)::int) as s from mi join cnt using (cluster, kind, key)
-                      group by mi.cluster, mi.username)
+            per as (select mi.cluster, mi.username, mi.kind, avg((cnt.k > 1)::int) as s from mi join cnt using (cluster, kind, key)
+                    group by all),
+            share as (select per.username, per.cluster, sum(per.s * lw.w) / sum(lw.w) as s from per join lw using (cluster, kind)
+                      group by all)
             select mc.username, mc.cluster, coalesce(share.s, 0) from member_cluster mc left join share using (username, cluster)""")
         con.execute("insert into cluster select cluster, count(*), round(avg(copied_share), 9) from member group by cluster")
 
