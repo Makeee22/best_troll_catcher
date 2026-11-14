@@ -302,17 +302,34 @@ class _PlainText(HTMLParser):
     """Algolia's HTML (<p>, <a href>, <i>, <pre><code>) as plain text plus the link URLs."""
     def __init__(self):
         super().__init__(convert_charrefs=True)
-        self.parts, self.links = [], []
+        self.parts, self.links, self.anchor = [], [], None  # anchor: [href, text parts] while inside <a href>
 
     def handle_starttag(self, tag, attrs):
         if tag in ("p", "br", "pre"):
             self.parts.append("\n")
         href = dict(attrs).get("href") if tag == "a" else None
         if href:
+            self._end_anchor()
             self.links.append(href)
+            self.anchor = [href, []]
+
+    def handle_endtag(self, tag):
+        if tag == "a":
+            self._end_anchor()
+
+    def _end_anchor(self):
+        if self.anchor:
+            href, text = self.anchor[0], "".join(self.anchor[1])
+            # Algolia cuts a long URL's anchor text with "..."; the href is the whole URL
+            self.parts.append(href if text.strip().startswith("http") else text)
+            self.anchor = None
 
     def handle_data(self, data):
-        self.parts.append(data)
+        (self.anchor[1] if self.anchor else self.parts).append(data)
+
+    def close(self):
+        super().close()
+        self._end_anchor()
 
 
 def _html_text(value):

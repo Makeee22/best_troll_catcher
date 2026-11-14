@@ -1,3 +1,5 @@
+import re
+
 from swarm import sites
 from swarm.convert import convert, merge
 
@@ -333,7 +335,7 @@ def test_hn_item_text_links_ids_and_deleted_child():
     rows, profiles, warnings = sites.from_json(HN_ITEM, "u")
     got = by_id(rows)
     assert list(got) == ["1", "2", "3", "4"] and profiles == [] and warnings == []
-    assert got["2"]["text"] == "It's fine\nsee https://x.example/... now"
+    assert got["2"]["text"] == "It's fine\nsee https://x.example/a now"  # the anchor text is cut with "...", the href is whole
     assert got["2"]["links"] == "https://x.example/a" and got["3"]["text"] == "agreed & more"
     assert (got["3"]["parent_id"], got["3"]["thread_id"], got["2"]["timestamp"]) == ("2", "1", "2026-11-14T10:00:00.000Z")
     assert got["1"]["text"] == "Ask: why?" and got["1"]["links"] == "https://s.example/post" and got["1"]["parent_id"] == ""
@@ -370,3 +372,12 @@ def test_unknown_json_and_missing_keys_do_not_crash():
     assert sites.from_json({"feed": [None, {"post": None}, {"reason": 3}]}, "p")[0] == []
     assert sites.from_json({"id": 1, "children": [None, {"id": None, "children": "x"}], "text": None}, "p")[0][0]["comment_id"] == ""
     assert sites.from_json({"hits": [None, {"objectID": None}]}, "p")[0][0]["comment_id"] == ""
+
+
+def test_hn_truncated_anchor_gives_one_distinct_url():
+    item = {"id": 1, "children": [{"id": 2, "author": "a", "story_id": 1, "children": [], "text":
+            'x <a href="https://h.example/long/path/to/page" rel="nofollow">https://h.example/long/pa...</a> y <a href="https://o.example/">a label</a>'}]}
+    row = sites.from_json(item, "u")[0][0]
+    urls = set(re.findall(r"https?://\S+", row["text"] + " " + row["links"]))
+    assert urls == {"https://h.example/long/path/to/page", "https://o.example/"}
+    assert row["text"] == "x https://h.example/long/path/to/page y a label"
