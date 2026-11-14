@@ -81,18 +81,15 @@ function setBusy(text) {
   for (const id of ["try-sample", "analyse", "comments-file", "profiles-file"]) $(id).disabled = !!text;
 }
 
-// Handoff S2: every genuine account flagged in the backend's labelled runs sat in a cluster under 0.4.
-// Labelled "weak", never hidden, and the cut is not raised (that would be tuning on labels).
-const WEAK_BELOW = 0.4;
-const WEAK_NOTE = "Groups this weak have included genuine accounts in our tests.";
-const isWeak = (x) => typeof x === "number" && x < WEAK_BELOW;
+// Handoff S6: no "weak" band. A pure botnet can sit at 0.24-0.28 (Test F, Fox8-23: its own generated text dilutes
+// the copied share), so a low confidence is not a sign of innocent members. Say only what the number is.
+const CONF_NOTE = "Confidence is how much of their posts the group shares, not a probability.";
 
 function confidenceBar(x) {
   const value = typeof x === "number" ? Math.max(0, Math.min(1, x)) : 0;
-  return h("span", { class: "conf", title: "confidence " + fmtConf(x) + (isWeak(x) ? ". Weak: " + WEAK_NOTE : "") },
+  return h("span", { class: "conf", title: "confidence " + fmtConf(x) + ". " + CONF_NOTE },
     h("span", { class: "conf-bar" }, h("span", { style: "width:" + (value * 100).toFixed(0) + "%" })),
-    h("span", { class: "conf-num" }, fmtConf(x)),
-    isWeak(x) ? h("span", { class: "weak" }, "weak") : null);
+    h("span", { class: "conf-num" }, fmtConf(x)));
 }
 
 // ---- loading ----
@@ -209,7 +206,7 @@ function renderSwarmMap(swarms) {
     const open = () => selectSwarm(b.s.id, true);
     g.addEventListener("click", open);
     g.addEventListener("keydown", (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); open(); } });
-    g.append(svg("circle", { class: "halo" + (isWeak(b.s.confidence) ? " weak-halo" : ""), cx: b.cx, cy: b.cy, r: b.R,
+    g.append(svg("circle", { class: "halo", cx: b.cx, cy: b.cy, r: b.R,
       style: "stroke:" + color + ";fill:" + color }));
     b.shown.forEach((a, k) => {
       const r = b.step * Math.sqrt(k + 0.5), t = k * golden;
@@ -221,7 +218,7 @@ function renderSwarmMap(swarms) {
     const label = svg("text", { x: b.cx, y: b.cy + b.R + 16, "text-anchor": "middle", class: "blob-label" });
     const flagged = b.members.filter(isFlagged).length;
     label.textContent = "Swarm " + (b.i + 1) + " · " + (flagged < b.members.length ? flagged + "/" : "") + b.s.size + " · " +
-      fmtConf(b.s.confidence) + (isWeak(b.s.confidence) ? " weak" : "");
+      fmtConf(b.s.confidence);
     const sub = svg("text", { x: b.cx, y: b.cy + b.R + 30, "text-anchor": "middle", class: "blob-sub" });
     sub.textContent = b.s.sample ? kindName(b.s.sample.kind).toLowerCase() : "";
     const tip = svg("title");
@@ -534,8 +531,7 @@ function renderDetail(d) {
   $("detail").replaceChildren(
     h("h3", null, "Swarm " + d.id + ": " + d.size + " accounts"),
     h("p", null, "Confidence ", confidenceBar(d.confidence)),
-    isWeak(d.confidence) ? h("p", { class: "note-plain" }, "Weak group (confidence under " + WEAK_BELOW + "). " + WEAK_NOTE +
-      " Check the evidence below before acting on it.") : null,
+    h("p", { class: "muted" }, CONF_NOTE + " Check the evidence below before acting on it."),
     h("p", { class: "muted" }, "Active from" + fmtTime(d.first_seen) + " to " + fmtTime(d.last_seen) + "."),
     created ? h("p", null, h("span", { class: "pill" },
       created.accounts + " of " + created.of + " accounts were created within one 30-day window"),
