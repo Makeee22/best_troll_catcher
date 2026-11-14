@@ -4,6 +4,7 @@
 """
 import functools
 import sys
+import threading
 
 from .load import InputError
 
@@ -24,13 +25,23 @@ MAX_PAIRS = 20_000_000
 # Largest group of texts that counts as one item; a bigger one is generic text chained together, not a copy.
 MAX_GROUP = 200
 BLOCK = 1000
+GATHER = 100_000
+_load_lock = threading.Lock()
 
 
 @functools.lru_cache(maxsize=2)
-def _model(name):
-    """The loaded model, kept for the life of the process: a server loads it once, not once per analysis."""
+def _load(name):
     from model2vec import StaticModel
     return StaticModel.from_pretrained(name)
+
+
+def _model(name):
+    """The loaded model, kept for the life of the process: a server loads it once, not once per analysis."""
+    with _load_lock:  # two concurrent jobs must not both load a 2 GB model
+        return _load(name)
+
+
+_model.cache_clear = _load.cache_clear
 
 
 class _TooManyPairs(Exception):
@@ -71,7 +82,8 @@ def _hashed_pairs(vectors, threshold, limit, tables=TABLES, bits=BITS, small=SMA
             if not len(p):
                 break
             a, b = order[p], order[p + d]
-            hit = np.einsum("ij,ij->i", vectors[a], vectors[b]) >= threshold
+            hit = np.concatenate([np.einsum("ij,ij->i", vectors[a[i:i + GATHER]], vectors[b[i:i + GATHER]]) >= threshold
+                                  for i in range(0, len(a), GATHER)])  # in chunks: a million texts would gather ~2 GB at once
             yield np.minimum(a, b)[hit], np.maximum(a, b)[hit]
         # large buckets: every pair inside, block by block
         for start, size in zip(starts[sizes > small].tolist(), sizes[sizes > small].tolist()):
@@ -112,19 +124,28 @@ def add_items(con, model=None, threshold=THRESHOLD, max_texts=MAX_TEXTS, max_pai
             x = parent[x]
         return x
 
-    pairs = 0
+    pairs = raw = 0
     warnings = []
+    hashed = count > EXACT_TEXTS
     try:
-        for rows, cols in (_all_pairs(vectors, threshold, max_pairs) if count <= EXACT_TEXTS
-                           else _hashed_pairs(vectors, threshold, max_pairs)):
-            pairs += len(rows)
-            if pairs > max_pairs:
+        # Exact: every pair comes once. Hashed: a close pair comes once per table that finds it (about 13 times, up to 48),
+        # so only unions that join two groups count toward max_pairs, and the raw yields get their own cap.
+        for rows, cols in (_hashed_pairs(vectors, threshold, max_pairs) if hashed else _all_pairs(vectors, threshold, max_pairs)):
+            raw += len(rows)
+            if not hashed:
+                pairs = raw
+            if raw > max_pairs * (TABLES if hashed else 1):
                 raise _TooManyPairs
             for r, c in zip(rows.tolist(), cols.tolist()):
-                parent[find(r)] = find(c)
+                a, b = find(r), find(c)
+                if a != b:
+                    parent[a] = b
+                    pairs += hashed
+            if pairs > max_pairs:
+                raise _TooManyPairs
     except _TooManyPairs:
         return f"more than {max_pairs:,} near-duplicate text pairs (templated data?)", []
-    if count > EXACT_TEXTS:
+    if hashed:
         warnings.append(f"similar_text: {count:,} texts compared by random-projection hashing, which finds about 98.6% "
                         f"of the pairs at cosine {threshold} and nearly all closer ones")
 

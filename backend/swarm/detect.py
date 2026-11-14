@@ -14,6 +14,8 @@ LONG_WORDS = 10
 # Two accounts created within this many days of each other count one more shared item, but only on top of shared
 # content: accounts made in one batch is the mark of a swarm that writes short, varied comments (Test R). The same
 # window as the `created_within_30_days` evidence; its chance rate is measured from the data like every other item's.
+# The 30 days were not tuned, but the test's form was: adding the creation to every dated pair came first and weakened
+# strong pairs on a labelled run, so it is now tried both ways and the stronger counted (PLAN.md, Results).
 CREATED_DAYS = 30
 # Smallest group of accounts that is a cluster.
 MIN_SIZE = 3
@@ -196,7 +198,7 @@ def detect(con, *, min_shared=MIN_SHARED, alpha=ALPHA, min_size=MIN_SIZE, pair_b
         p as (select a.username as u1, b.username as u2, a.kind, count(*) as c, count(*) filter (where a.words >= ?) as long
               from shared a join shared b on a.kind = b.kind and a.key = b.key and a.username < b.username
               group by all),
-        b as (select p.*, b1.created_at is not null and b2.created_at is not null as dated,
+        b as (select p.*,
                      coalesce(abs(epoch(b1.created_at) - epoch(b2.created_at)) <= ? * 86400, false) as together
               from p left join born b1 on b1.username = p.u1 left join born b2 on b2.username = p.u2),
         e as (select b.u1, b.u2, b.kind, b.c, b.long, b.together, n1.n * n2.n * s.s as expected
@@ -204,8 +206,9 @@ def detect(con, *, min_shared=MIN_SHARED, alpha=ALPHA, min_size=MIN_SIZE, pair_b
                      join n n2 on n2.username = b.u2 and n2.kind = b.kind
                      join s on s.kind = b.kind),
         -- Tested twice when the two were created together: on the content alone, and with the creation as one more item
-        -- whose chance is added to what is expected. The stronger counts, at twice the p-value for trying two; adding a
-        -- common event to a rare one must never weaken it (bots created in bursts make that chance large).
+        -- whose chance is added to what is expected. The stronger counts. Only the second test carries a Bonferroni
+        -- factor 2 (ln 2), so for pairs created together the false-positive rate can reach 1.5 times the nominal one.
+        -- Adding a common event to a rare one must never weaken it (bots created in bursts make that chance large).
         t as (select *, __LOGP__(c, expected) as alone,
                      case when together then __LOGP__(c + 1, expected + ?) + ln(2) end as with_born from e)
         select u1, u2, kind, case when with_born < alone then c + 1 else c end as c, long,

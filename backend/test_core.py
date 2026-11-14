@@ -143,3 +143,20 @@ def test_a_member_that_copies_far_less_than_its_cluster_is_linked_not_flagged(tm
     assert (m["true_positives"], m["false_positives"]) == (3, 0)
     every = analyze(make_csv(tmp_path, "c.csv", rows), profiles, member_ratio=0)
     assert every["metrics"]["at_min_confidence"]["false_positives"] == 1
+
+
+def test_member_flag_uses_the_unrounded_confidence():
+    # confidence 0.37549 shows as 0.375; a share of 0.1876 is under half of the raw value, so not flagged
+    import duckdb
+    from swarm.core import _clusters
+    con = duckdb.connect()
+    con.execute("create table cluster (cluster VARCHAR, size BIGINT, confidence DOUBLE)")
+    con.execute("create table member (username VARCHAR, cluster VARCHAR, copied_share DOUBLE)")
+    con.execute("create table link (u1 VARCHAR, u2 VARCHAR, kind VARCHAR, shared BIGINT, created_together BOOLEAN)")
+    con.execute("create table item (username VARCHAR, kind VARCHAR, key UBIGINT, value VARCHAR, first_seen TIMESTAMP, last_seen TIMESTAMP)")
+    con.execute("create table profiles (username VARCHAR, display_name VARCHAR, bio VARCHAR, created_at TIMESTAMP)")
+    con.execute("insert into cluster values ('c1', 2, 0.37549)")
+    con.execute("insert into member values ('a', 'c1', 0.1876), ('b', 'c1', 0.5)")
+    [c] = _clusters(con, 0.2, 0.5)
+    assert c["confidence"] == 0.375
+    assert {a["username"]: a["flagged"] for a in c["accounts"]} == {"a": False, "b": True}

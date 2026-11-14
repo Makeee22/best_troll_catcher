@@ -202,3 +202,46 @@ def test_hashing_finds_nearly_every_close_pair():
     exact = {p for r, c in similar._all_pairs(v, 0.9, 10**9) for p in zip(r.tolist(), c.tolist())}
     hashed = {p for r, c in similar._hashed_pairs(v, 0.9, 10**9) for p in zip(r.tolist(), c.tolist())}
     assert hashed <= exact and len(hashed) >= 0.98 * len(exact) and len(exact) >= 290
+
+
+@needs_model2vec
+def test_hashing_counts_each_close_pair_once_against_max_pairs(monkeypatch):
+    import numpy as np
+    rng = np.random.default_rng(1)
+    base = rng.standard_normal((300, 64)).astype(np.float32)
+    vecs = np.vstack([base, base + 0.25 * rng.standard_normal((300, 64)).astype(np.float32)])   # 300 close pairs
+
+    class Fake:
+        def encode(self, texts):
+            return vecs[[int(t[1:]) for t in texts]]
+
+    monkeypatch.setattr(similar, "_model", lambda name: Fake())
+    monkeypatch.setattr(similar, "EXACT_TEXTS", 10)   # hashed path: each close pair is yielded once per table that finds it
+    con = connect()
+    con.execute("create table item (username VARCHAR, kind VARCHAR, key UBIGINT, value VARCHAR, first_seen TIMESTAMP, last_seen TIMESTAMP)")
+    con.execute("create table text_norm as select i as key, 't' || i as norm from range(600) t(i)")
+    reason, _ = add_items(con, max_pairs=400)   # 300 distinct pairs fit; raw yields (about 13 per pair) do not
+    assert reason is None
+    reason, _ = add_items(con, max_pairs=100)
+    assert reason and "near-duplicate" in reason
+
+
+@needs_model2vec
+def test_two_concurrent_jobs_load_the_model_once(monkeypatch):
+    import threading
+    import time
+    import model2vec
+    loads = []
+
+    def slow(name):
+        loads.append(name)
+        time.sleep(0.2)
+        return object()
+
+    monkeypatch.setattr(model2vec.StaticModel, "from_pretrained", slow)
+    similar._model.cache_clear()
+    threads = [threading.Thread(target=similar._model, args=("x",)) for _ in range(2)]
+    [t.start() for t in threads]
+    [t.join() for t in threads]
+    similar._model.cache_clear()
+    assert loads == ["x"]

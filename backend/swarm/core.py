@@ -10,7 +10,8 @@ MIN_CONFIDENCE = 0.2
 # average share); the others are linked, not flagged. Stops a real community bridged
 # into a botnet by a few links from inheriting the botnet's confidence (the Cresci subset: humans copy 0.32, the cluster
 # 0.79; docs/findings-context-dev-and-subset.md). Relative, because a fixed 0.5 drops every swarm that also posts its own
-# comments (6 copies among 16 posts is 0.375). Fixed at one half before measuring.
+# comments (6 copies among 16 posts is 0.375). The value 0.5 was not tuned on labels, but the form of the rule was revised
+# once after a labelled run (a fixed 0.5 cut was tried first and dropped; PLAN.md, Results).
 MEMBER_RATIO = 0.5
 # Caps so one huge cluster cannot make the result file unusable; edge_count stays the true number.
 MAX_EDGES = 500
@@ -53,7 +54,7 @@ def _clusters(con, min_confidence, member_ratio):
                "copy_gap_seconds": None, "declared_automation": None, "flagged_members": 0}
            for c, size, conf in con.execute("select * from kept").fetchall()}
 
-    conf_of = {c: v["confidence"] for c, v in out.items()}
+    conf_of = dict(con.execute("select cluster, confidence from kept").fetchall())  # unrounded, as evaluate.py compares
     for c, user, share in con.execute(
             "select cluster, username, copied_share from member where cluster in (select cluster from kept) "
             "order by cluster, copied_share desc, username").fetchall():
