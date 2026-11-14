@@ -3,5 +3,5 @@
 FROM nginx:1.27-alpine
 COPY nginx.conf /etc/nginx/conf.d/default.conf
 COPY site /usr/share/nginx/html
-COPY mock/samples /usr/share/nginx/html/samples
+COPY samples /usr/share/nginx/html/samples
 EXPOSE 80
