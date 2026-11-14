@@ -44,7 +44,8 @@ One owner per directory. This is how four people avoid git conflicts.
 | **Data + detection criteria** (TheSnowman99) | `data/`, `docs/criteria.md` |
 
 - If it is unclear which role the current user has, ask before editing.
-- Edit only that role's directories. If a change is needed elsewhere, say so and let the user ask the owner.
+- Code directories belong to their role: edit only that role's directories. If a change is needed elsewhere, say so and let the user ask the owner.
+- Documentation (`docs/`, `README.md`, `PLAN.md`, this file) may be edited by anyone. If two edits conflict, tell the user and the original owner's version wins.
 - The front end and the backend meet only at `docs/api.md`. The backend owner changes it and announces the change; the front end builds against mock JSON until the real endpoint exists.
 
 ## Git rules
@@ -77,7 +78,7 @@ One owner per directory. This is how four people avoid git conflicts.
 
 - `PLAN.md` holds the timeline, the open decisions ("branches", `B1`…) and a status block per role.
 - When a decision is made, mark its branch `DECIDED` with the date and the choice. Keep the other options listed.
-- Update only the status block of the current user's role.
+- Update the status block of the current user's role; other parts of `PLAN.md` may be edited by anyone (see "Who owns what"), and new evaluation numbers go into its Results table.
 
 ## Resources
 

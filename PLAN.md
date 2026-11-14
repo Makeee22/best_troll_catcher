@@ -2,7 +2,7 @@
 
 Junction 2026, 13–15.11.2026. Challenges: **Hostinger "Decode the Noise"** (main) and **Context.dev** (second).
 
-Keeper of this file: the presentation + documentation owner. Everyone else edits only their own status block at the bottom, or asks the keeper.
+Keeper of this file: the presentation + documentation owner. Anyone may edit it; each role keeps its own status block at the bottom. If two edits conflict, the keeper's version wins and the user is told.
 
 "Branch" in this file means an **open decision**, not a git branch. Branches are listed under [Open branches](#open-branches) and referred to as `B1`, `B2`…
 
@@ -131,11 +131,11 @@ Record every evaluation run here: date and time, dataset, variant, precision, re
 | 14.11 11:20 | **Synthetic** sample with an extra reworded swarm (262 accounts, 19 bots in three simulated swarms; 5,869 comments) | core, rules only | 0.8125 | 0.684 | 0.0123 | The reworded swarm (6 accounts, every member words each message differently) is missed. Same data without the layer. |
 | 14.11 11:20 | **Synthetic**, same as above | core + similar-text layer (`--similar-text`, cosine 0.9, `potion-base-8M`) | 0.864 | 1.000 | 0.0123 | The reworded swarm is found, at confidence 0.252: just above the 0.2 cut. Nearest-neighbour cosine between its variants: min 0.876, median 0.94, so some variants fall below 0.9; the swarm is found through the others. The two real swarms' confidence drops a little (0.375 to 0.371 and 0.323). Says the code works, not how good the layer is on real text. |
 | 14.11 11:30 | Cresci 2017, **300 genuine accounts only** (first 300 by sorted username among those with comments; up to 500 comments each, 148,288 comments, 82,572 distinct texts) | core, rules only | n/a | n/a | 0 of 300 flagged | 0 clusters. Humans only, so this measures false positives and nothing else. Run time 2 s. |
-| 14.11 11:30 | Same 300 genuine accounts | core + similar-text layer | n/a | n/a | 0 of 300 flagged | 0 clusters. 936 similar-text items, 0 links. Run time 42 s. The only real-data evidence for the layer: no false positives, but also nothing to find, since humans only. Benefit on real reworded swarms is not measured. |
+| 14.11 11:30 | Same 300 genuine accounts | core + similar-text layer | n/a | n/a | 0 of 300 flagged | 0 clusters. 926 similar-text items, 0 links (after the review fixes; 936 before). Dropping the rule that ignored groups of word-for-word copies, to favour recall, changed nothing here or on the synthetic sample (940 items), so no row of its own. Run time 42 s. The only real-data evidence for the layer: no false positives, but also nothing to find, since humans only. Benefit on real reworded swarms is not measured. |
 
 ## Status by role
 
-Each role edits only its own block.
+Each role keeps its own block.
 
 ### Backend
 - Done: research, measurements on Cresci 2017, the core design (`docs/core-design.md`) and build plan (`docs/core-plan.md`). The core on branch `arde/core`: CSV loading, detection, metrics, result document, synthetic data, Cresci converter, command line (`python -m swarm`), and the read-only API on the new result. The contract is rewritten in `docs/api.md`.
