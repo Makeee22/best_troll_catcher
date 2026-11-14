@@ -88,9 +88,29 @@ def upload(comments: UploadFile = File(...), profiles: UploadFile | None = File(
 
 # Discussion analysis (Bluesky link, saved Reddit page): background jobs, each visible only through its own id (jobs.py).
 sys.path.insert(0, str(HERE))
+import explain  # noqa: E402
 import jobs  # noqa: E402
 
 jobs.register(app, analyze, lock)
+
+
+def explain_or_http(cache_key, cluster, source):
+    """explain.explain() with its errors as HTTP answers the page can show."""
+    try:
+        return explain.explain(cache_key, cluster, source)
+    except explain.ExplainError as e:
+        raise HTTPException(429 if "per hour" in str(e) else 503, str(e)) from None
+
+
+@app.post("/api/swarms/{swarm_id}/explain")
+def explain_shared(swarm_id: str):
+    """AI-written explanation of one cluster of the shared result (explain.py), cached per result and cluster."""
+    if swarm_id not in base.by_id:
+        raise HTTPException(404, "no such swarm")
+    return explain_or_http(("shared", id(base.result), swarm_id), base.by_id[swarm_id], base.result["source"])
+
+
+jobs.register_explain(app, explain_or_http)
 
 
 # Local convenience only (no Docker, no nginx): serve the page from the same port.

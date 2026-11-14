@@ -102,3 +102,10 @@ code { font-size: .9em; }
 .timeline .gap { border-left-style: dotted; color: var(--muted); font-size: .8rem; }
 .timeline .text { overflow-wrap: anywhere; }
 footer { padding: 10px 16px 30px; }
+.verdict.explained { border-left: 4px solid var(--accent); }
+.ai-label { font-size: .85rem; color: var(--muted); font-style: italic; margin-top: 0; }
+.refs { color: var(--muted); font-size: .85em; font-variant-numeric: tabular-nums; }
+.plaus-high { border-color: var(--warn-text); }
+.plaus-low { opacity: .8; }
+.verdict ul { margin: 4px 0 10px; padding-left: 20px; }
+.verdict pre { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 260px; overflow-y: auto; }

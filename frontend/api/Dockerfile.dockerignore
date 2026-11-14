@@ -8,4 +8,5 @@
 !frontend/api/reddit_html.py
 !frontend/api/bluesky.py
 !frontend/api/jobs.py
+!frontend/api/explain.py
 **/__pycache__

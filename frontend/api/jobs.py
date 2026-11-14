@@ -314,3 +314,19 @@ def register(app, analyze, analysis_lock):
             if c["id"] == swarm_id:
                 return c
         raise HTTPException(404, "no such swarm")
+
+
+def register_explain(app, explain_or_http):
+    """POST /api/jobs/{id}/swarms/{swarm}/explain: AI-written explanation of one cluster of a job (explain.py)."""
+    @app.post("/api/jobs/{job_id}/swarms/{swarm_id}/explain")
+    def job_explain(job_id: str, swarm_id: str):
+        _cleanup()
+        job = _jobs.get(job_id)
+        if job is None:
+            raise HTTPException(404, "No such analysis. Results are kept for 3 hours, then deleted.")
+        if job["status"] != "done":
+            raise HTTPException(409, "The analysis is not finished yet.")
+        for c in job["result"]["clusters"]:
+            if c["id"] == swarm_id:
+                return explain_or_http(("job", job_id, swarm_id), c, job["result"]["source"])
+        raise HTTPException(404, "no such swarm")

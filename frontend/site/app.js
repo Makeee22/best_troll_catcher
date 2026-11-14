@@ -93,14 +93,17 @@ let loadToken = 0;       // ignore answers that belong to an older result
 const SHARED = {
   job: null,
   detail: (id) => api("/api/swarms/" + encodeURIComponent(id)),
+  explain: (id) => api("/api/swarms/" + encodeURIComponent(id) + "/explain", { method: "POST" }),
   metrics: () => api("/api/metrics"),
 };
 let ctx = SHARED;
 
 function jobContext(job) {
+  const base = "/api/jobs/" + encodeURIComponent(job.id) + "/swarms/";
   return {
     job,
-    detail: (id) => api("/api/jobs/" + encodeURIComponent(job.id) + "/swarms/" + encodeURIComponent(id)),
+    detail: (id) => api(base + encodeURIComponent(id)),
+    explain: (id) => api(base + encodeURIComponent(id) + "/explain", { method: "POST" }),
     metrics: () => Promise.resolve(job.metrics || { source: job.listing.source, metrics: null }),
   };
 }
@@ -109,6 +112,7 @@ async function showResult(listing, context) {
   const token = ++loadToken;
   ctx = context || SHARED;
   details = new Map();
+  explained.clear();
   $("results").hidden = false;
   renderJobBanner(ctx.job);
   renderSource(listing, null);
@@ -309,6 +313,62 @@ async function selectSwarm(id, scroll) {
   if (scroll) $("detail").scrollIntoView({ behavior: "smooth", block: "start" });
 }
 
+// ---- AI explanation of one swarm (Gemini, server side; explain.py). It explains the evidence, it never decides. ----
+
+const explained = new Map(); // swarm id -> explanation answer, for this result
+
+const PLAUS = { low: "unlikely", medium: "possible", high: "likely" };
+
+function renderExplanation(box, answer) {
+  const e = answer.explanation || {};
+  const refs = (ids) => (ids && ids.length ? h("span", { class: "refs" }, " [" + ids.join(", ") + "]") : null);
+  box.className = "verdict explained";
+  box.replaceChildren(
+    h("p", { class: "ai-label" }, "AI-written explanation of the evidence below (" + answer.model + "). " +
+      "It can be wrong, and it does not change the result."),
+    h("p", null, h("strong", null, "What the group appears to do: "), e.likely_activity || "unclear"),
+    h("p", null, e.summary || ""),
+    (e.observations || []).length ? h("ul", null, e.observations.map((o) => h("li", null, o.point, refs(o.evidence)))) : null,
+    (e.innocent_explanations || []).length ? h("div", null,
+      h("p", null, h("strong", null, "Innocent explanations weighed")),
+      h("ul", null, e.innocent_explanations.map((x) => h("li", null,
+        h("span", { class: "pill plaus-" + x.plausibility }, PLAUS[x.plausibility] || x.plausibility), " ", x.explanation + ". ",
+        h("span", { class: "muted" }, x.why))))) : null,
+    (e.what_to_check_next || []).length ? h("div", null,
+      h("p", null, h("strong", null, "What to check next")),
+      h("ul", null, e.what_to_check_next.map((x) => h("li", null, x)))) : null,
+    e.uncertainty ? h("p", { class: "muted" }, h("strong", null, "What the evidence cannot show: "), e.uncertainty) : null,
+    h("details", null, h("summary", null, "Evidence sent to the model (usernames replaced)"),
+      h("pre", null, answer.evidence_sent || "")));
+}
+
+function renderExplainBox(d) {
+  const box = h("div", { class: "verdict pending" });
+  if (explained.has(d.id)) { renderExplanation(box, explained.get(d.id)); return box; }
+  const button = h("button", { type: "button", class: "primary" }, "Explain this swarm with AI");
+  const say = h("span", { class: "muted" });
+  button.addEventListener("click", async () => {
+    button.disabled = true;
+    say.textContent = " Asking the language model… about 10–20 s.";
+    const token = loadToken;
+    try {
+      const answer = await ctx.explain(d.id);
+      if (token !== loadToken) return;
+      explained.set(d.id, answer);
+      renderExplanation(box, answer);
+    } catch (e) {
+      button.disabled = false;
+      say.textContent = " " + e.message;
+    }
+  });
+  box.replaceChildren(
+    h("p", null, "Before acting, rule out the innocent look-alikes: breaking news, a real campaign, an automated news feed, " +
+      "one viral post. A language model can read the evidence below and describe what the group appears to do, " +
+      "with the innocent explanations weighed. Usernames are replaced before anything is sent."),
+    h("p", null, button, say));
+  return box;
+}
+
 function renderDetail(d) {
   const edges = [...(d.edges || [])].sort((a, b) => b.shared - a.shared);
   const names = d.accounts.map((a) => a.username);
@@ -325,9 +385,7 @@ function renderDetail(d) {
       "Copies follow each other after " + fmtGapSeconds(d.copy_gap_seconds.median) + " (median, over " + fmtInt(d.copy_gap_seconds.items) + " shared items)"),
       h("span", { class: "muted" }, d.copy_gap_seconds.median < 60 ? " Within seconds: typical of automation or a scheduled campaign." : " Evidence only.")) : null,
     d.declared_automation ? h("p", null, h("span", { class: "pill" }, automationNote(d.declared_automation))) : null,
-    h("div", { class: "verdict pending" },
-      "No plain-language explanation yet. Before acting, rule out the innocent look-alikes: breaking news, a real campaign, " +
-      "an automated news feed, one viral post. The evidence below is what the decision rests on."),
+    renderExplainBox(d),
     h("h3", null, "What they share most"),
     renderItems(d.top_items || []),
     h("h3", null, "Members"),

@@ -71,3 +71,16 @@ To point the page at another API: edit `site/config.js`, or add `?api=http://hos
 
 - The samples here are synthetic. Never add real data to this folder: the repo is public.
 - **Never upload the Cresci 2017 data to the live site.** It is research-only and holds real people's tweets; the result would be shown to every visitor.
+
+## AI explanation of a swarm (`api/explain.py`)
+
+`POST /api/swarms/{id}/explain` (shared result) and `POST /api/jobs/{job}/swarms/{id}/explain` (a discussion job) ask a
+language model (Gemini, `GEMINI_MODEL`, default `gemini-flash-latest`; key `GEMINI_API_KEY` in the server's `.env`) to
+explain **the evidence the core already produced** for one cluster: what the group appears to do, observations with
+evidence ids (E1… shared items, F1… facts such as copied share, copy gap, creation dates, declared automation), the
+innocent explanations weighed (low / medium / high), what to check next and what the evidence cannot show.
+
+- Team rule (CLAUDE.md): the model explains, it never finds or overrules a cluster. The page labels the answer as AI-written.
+- Privacy: usernames become "Member 1…n" and @handles / u/names in texts become "@someone" before anything is sent; only
+  the cluster's evidence is sent. The page shows exactly what was sent.
+- Cached per result and cluster; at most 60 explanations per hour for the whole site. 503 when no key is configured, 429 over the cap.
