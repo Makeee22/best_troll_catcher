@@ -3,7 +3,7 @@ from datetime import timedelta
 
 from . import detect as d
 from .evaluate import evaluate
-from .load import connect, load
+from .load import close, connect, load
 
 MIN_CONFIDENCE = 0.2
 # Caps so one huge cluster cannot make the result file unusable; edge_count stays the true number.
@@ -45,7 +45,7 @@ def _clusters(con, min_confidence):
     con.execute("""
         create or replace temp table shared_item as
         select m.cluster, i.kind, i.key, count(*) as accounts,
-               coalesce(arg_min(i.value, i.first_seen), any_value(i.value)) as value,
+               first(i.value order by i.first_seen nulls last, i.value) as value,
                min(i.first_seen) as first_seen, max(i.last_seen) as last_seen
         from item i join member m using (username)
         where m.cluster in (select cluster from kept)
@@ -105,4 +105,4 @@ def analyze(comments_path, profiles_path=None, *, min_confidence=MIN_CONFIDENCE,
             "metrics": evaluate(con, min_confidence),
         }
     finally:
-        con.close()
+        close(con)

@@ -96,3 +96,9 @@ def test_unusable_comment_files_raise_input_error(tmp_path, content):
 def test_missing_file_raises_input_error(tmp_path):
     with pytest.raises(InputError):
         load(connect(), str(tmp_path / "nope.csv"))
+
+
+def test_whitespace_only_cells_are_empty(tmp_path, make_csv):
+    con = connect()
+    load(con, make_csv(tmp_path, "c.csv", [{"username": "ann", "text": "hi", "repost_of": " ", "parent_id": "\t"}]))
+    assert rows(con, "select repost_of, parent_id from comments") == [(None, None)]

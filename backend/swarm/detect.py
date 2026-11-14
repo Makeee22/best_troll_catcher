@@ -34,7 +34,7 @@ raw as (
           from c where repost_of is null)
   union all
   select username, 'reply', hash(parent_id), parent_id, ts from c where parent_id is not null and repost_of is null)
-select username, kind, key, coalesce(arg_min(value, ts), any_value(value)) as value, min(ts) as first_seen, max(ts) as last_seen
+select username, kind, key, first(value order by ts nulls last, value) as value, min(ts) as first_seen, max(ts) as last_seen
 from raw group by username, kind, key
 """
 
@@ -141,7 +141,7 @@ def detect(con, *, min_shared=MIN_SHARED, alpha=ALPHA, min_size=MIN_SIZE, pair_b
             cnt as (select cluster, kind, key, count(*) as k from mi group by all)
             select mi.username, mi.cluster, avg((cnt.k > 1)::int) from mi join cnt using (cluster, kind, key)
             group by mi.cluster, mi.username""")
-        con.execute("insert into cluster select cluster, count(*), avg(copied_share) from member group by cluster")
+        con.execute("insert into cluster select cluster, count(*), round(avg(copied_share), 9) from member group by cluster")
 
     signals = {}
     for kind in KINDS:

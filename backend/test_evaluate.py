@@ -33,3 +33,13 @@ def test_a_higher_cut_flags_fewer(tmp_path):
 
 def test_no_labels_no_metrics(tmp_path):
     assert evaluate(analysed(tmp_path, with_profiles=False), 0.2) is None
+
+
+def test_labels_ignore_case_and_spaces(tmp_path, make_csv):
+    con = connect()
+    load(con, make_csv(tmp_path, "c.csv", [{"username": u, "text": "some words that make five"} for u in "ab"]),
+         make_csv(tmp_path, "p.csv", [{"username": "a", "label": " Bot:X "}, {"username": "b", "label": "HUMAN"}]))
+    detect(con)
+    m = evaluate(con, 0.2)
+    assert m["by_label"] == {"bot:x": {"accounts": 1, "flagged": 0}, "human": {"accounts": 1, "flagged": 0}}
+    assert m["at_min_confidence"]["false_negatives"] == 1 and m["at_min_confidence"]["true_negatives"] == 1

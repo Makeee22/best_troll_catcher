@@ -27,8 +27,8 @@ def evaluate(con, min_confidence):
     if not rows:
         return None
     with_content = [(label, conf) for label, has, conf in rows if has]
-    accounts = [(label.strip().lower() == "bot" or label.strip().lower().startswith("bot:"), conf)
-                for label, conf in with_content]
+    with_content = [(label.strip().lower(), conf) for label, conf in with_content if label.strip()]
+    accounts = [(label.startswith("bot"), conf) for label, conf in with_content]
     by_label = {}
     for label, conf in with_content:
         entry = by_label.setdefault(label, {"accounts": 0, "flagged": 0})

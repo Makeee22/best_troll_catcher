@@ -33,3 +33,15 @@ def test_min_confidence_cuts_the_list(tmp_path):
     result = analyze(*write(str(tmp_path)), min_confidence=0.5)
     assert [c["size"] for c in result["clusters"]] == [3]
     assert result["parameters"]["min_confidence"] == 0.5
+
+
+def test_same_input_same_output(tmp_path):
+    paths = write(str(tmp_path))
+    assert json.dumps(analyze(*paths), sort_keys=True) == json.dumps(analyze(*paths), sort_keys=True)
+
+
+def test_analyze_removes_its_temporary_database(tmp_path):
+    import glob, tempfile
+    before = set(glob.glob(f"{tempfile.gettempdir()}/swarm-*"))
+    analyze(*write(str(tmp_path)))
+    assert set(glob.glob(f"{tempfile.gettempdir()}/swarm-*")) == before

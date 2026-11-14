@@ -19,12 +19,24 @@ class InputError(ValueError):
     """The input cannot be analysed; the message says what to fix."""
 
 
+_WORK_DIRS = {}
+
+
 def connect():
     work = tempfile.mkdtemp(prefix="swarm-")
     atexit.register(shutil.rmtree, work, ignore_errors=True)
     con = duckdb.connect(str(Path(work, "work.duckdb")))
     con.execute("SET TimeZone='UTC'")
+    _WORK_DIRS[id(con)] = work
     return con
+
+
+def close(con):
+    """Close the connection and delete its temporary database now, not at exit."""
+    work = _WORK_DIRS.pop(id(con), None)
+    con.close()
+    if work:
+        shutil.rmtree(work, ignore_errors=True)
 
 
 def _q(name):
@@ -43,16 +55,21 @@ def _header(con, path):
     return present, names
 
 
+def _clean(src):
+    """Empty when the cell holds only whitespace (tabs and no-break spaces too); surrounding whitespace is cut."""
+    return f"nullif(regexp_replace({src}, '^[\\s\\p{{Z}}]+|[\\s\\p{{Z}}]+$', '', 'g'), '')"
+
+
 def _expr(col, src):
     if col == "username":
         return f"trim({src})"
     if col in TIME_COLUMNS:
-        return f"try_cast(nullif({src}, '') as timestamptz)::timestamp"
+        return f"try_cast({_clean(src)} as timestamptz)::timestamp"
     if col == "synthetic":
         return f"coalesce(lower(trim({src})) in ('1', 'true'), false)"
     if col == "comment_id":
-        return f"coalesce(nullif({src}, ''), _rn::varchar)"
-    return f"nullif({src}, '')"
+        return f"coalesce({_clean(src)}, _rn::varchar)"
+    return f"{_clean(src)}"
 
 
 def _missing_expr(col):
@@ -77,7 +94,7 @@ def _build(con, table, path, standard, present, names, who):
     user = f"trim({_q(present['username'])})"
     tcol = next(c for c in standard if c in TIME_COLUMNS)
     bad = _q(present[tcol]) if tcol in present else None
-    bad_time = (f"count(*) filter (where {user} <> '' and nullif({bad}, '') is not null "
+    bad_time = (f"count(*) filter (where {user} <> '' and {_clean(bad)} is not null "
                 f"and try_cast({bad} as timestamptz) is null)") if bad else "0"
     total, no_user, bad_n = con.execute(
         f"select count(*), count(*) filter (where {user} is null or {user} = ''), {bad_time} "
@@ -96,7 +113,8 @@ def load(con, comments_path, profiles_path=None):
         return _load(con, comments_path, profiles_path)
     except duckdb.Error as e:
         # a row with a different number of cells than the header ends up here
-        raise InputError(f"cannot read the CSV files: {e}") from None
+        # first line only: DuckDB's CSV errors quote the offending row, which may be private
+        raise InputError(f"cannot read the CSV files: {str(e).splitlines()[0][:200]}") from None
 
 
 def _load(con, comments_path, profiles_path):
