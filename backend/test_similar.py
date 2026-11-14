@@ -177,3 +177,28 @@ def test_finnish_rewordings_become_one_item_and_unrelated_texts_do_not(tmp_path,
     rows += [{"username": "d", "text": t} for t in ("kävin eilen mökillä ja järvi oli jo melkein jäässä",
                                                      "hallitus esitteli eilen uuden budjetin eduskunnalle")]
     assert _similar_item_count(tmp_path, make_csv, rows, threshold=similar.THRESHOLD) == 6    # a, b, c twice; d none
+
+
+@needs_model2vec
+def test_hashing_finds_the_same_swarm_as_comparing_every_pair(tmp_path, monkeypatch):
+    from swarm import similar
+    exact, _, _ = run(tmp_path, similar_text=True)
+    monkeypatch.setattr(similar, "EXACT_TEXTS", 10)   # force the hashed path on the small sample
+    (tmp_path / "h").mkdir()
+    hashed, signals, warnings = run(tmp_path / "h", similar_text=True)
+    assert clusters(hashed) == clusters(exact)
+    assert any("random-projection hashing" in w for w in warnings)
+
+
+@needs_model2vec
+def test_hashing_finds_nearly_every_close_pair():
+    import numpy as np
+    from swarm import similar
+    rng = np.random.default_rng(1)
+    base = rng.standard_normal((300, 64)).astype(np.float32)
+    noisy = base + 0.25 * rng.standard_normal((300, 64)).astype(np.float32)   # each pair at cosine about 0.97
+    v = np.vstack([base, noisy])
+    v /= np.linalg.norm(v, axis=1, keepdims=True)
+    exact = {p for r, c in similar._all_pairs(v, 0.9, 10**9) for p in zip(r.tolist(), c.tolist())}
+    hashed = {p for r, c in similar._hashed_pairs(v, 0.9, 10**9) for p in zip(r.tolist(), c.tolist())}
+    assert hashed <= exact and len(hashed) >= 0.98 * len(exact) and len(exact) >= 290
