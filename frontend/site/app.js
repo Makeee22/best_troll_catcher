@@ -165,7 +165,7 @@ async function showResult(listing, context) {
 
 // ---- colours per swarm (same colour on the map, in the list and in the graph) ----
 let swarmOrder = [];
-const PALETTE = ["#e4572e", "#2e86ab", "#8e5bd6", "#3c9d5d", "#d64592", "#e09f1f", "#17a398", "#6b7fd7"];
+const PALETTE = ["#ff3fb4", "#29c8ff", "#9dea2e", "#a46bff", "#ff8a1f", "#16d9b0", "#ffd21f", "#6f8bff"];
 const swarmColor = (id) => PALETTE[Math.max(0, swarmOrder.indexOf(id)) % PALETTE.length];
 
 // ---- the swarm map: every swarm as a cluster of dots (phyllotaxis), one dot per account ----
@@ -215,7 +215,7 @@ function renderSwarmMap(swarms) {
       const r = b.step * Math.sqrt(k + 0.5), t = k * golden;
       const px = b.cx + r * Math.cos(t), py = b.cy + r * Math.sin(t);
       g.append(isFlagged(a)
-        ? svg("circle", { cx: px.toFixed(1), cy: py.toFixed(1), r: b.dot, style: "fill:" + color })
+        ? svg("circle", { cx: px.toFixed(1), cy: py.toFixed(1), r: b.dot, style: "fill:" + color + ";color:" + color })
         : svg("circle", { class: "linked-dot", cx: px.toFixed(1), cy: py.toFixed(1), r: b.dot }));
     });
     const label = svg("text", { x: b.cx, y: b.cy + b.R + 16, "text-anchor": "middle", class: "blob-label" });
