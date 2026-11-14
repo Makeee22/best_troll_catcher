@@ -10,12 +10,12 @@ import re
 import tempfile
 from datetime import datetime, timezone
 
-from . import bluesky, hackernews
+from . import bluesky, hackernews, reddit
 from .contextdev import CollectError, ContextDev, ContextDevError
 
 __all__ = ["collect", "run", "analyse", "CollectError", "ContextDev", "ContextDevError"]
 
-SITES = [("bluesky", bluesky), ("hackernews", hackernews)]
+SITES = [("bluesky", bluesky), ("hackernews", hackernews), ("reddit", reddit)]
 
 
 def _normalise(url):

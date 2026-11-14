@@ -298,3 +298,85 @@ def test_hn_link_forms():
     assert hackernews.matches("https://news.ycombinator.com/item?id=4123456&p=2")
     assert not hackernews.matches("https://news.ycombinator.com/news")
     assert not hackernews.matches("https://news.ycombinator.com/item?id=abc")
+
+
+# --- Reddit ----------------------------------------------------------------------------------
+
+REDDIT_PAGE = """
+<shreddit-post id="t3_post1" author="op_user" post-title="A synthetic title" subreddit-prefixed-name="r/test"
+    created-timestamp="2026-11-14T09:00:00.000000+0000" comment-count="5"></shreddit-post>
+<shreddit-comment thingid="t1_c1" author="alice" created="2026-11-14T10:00:00.000000+0000" parentid="" postid="t3_post1">
+  <div id="t1_c1-comment-rtjson-content"><p>first comment</p></div></shreddit-comment>
+<shreddit-comment thingid="t1_c2" author="bob_b" created="2026-11-14T10:05:00.000000+0000" parentid="t1_c1" postid="t3_post1">
+  <div id="t1_c2-comment-rtjson-content"><p>a reply</p></div></shreddit-comment>
+<shreddit-comment thingid="t1_c3" author="[deleted]" created="2026-11-14T10:06:00.000000+0000" parentid="t1_c1" postid="t3_post1">
+  <div id="t1_c3-comment-rtjson-content"><p>gone</p></div></shreddit-comment>
+<shreddit-comment thingid="t1_c4" author="x" created="2026-11-14T10:07:00.000000+0000" parentid="t1_c1" postid="t3_post1">
+  <div id="t1_c4-comment-rtjson-content"><p>too short a name for reddit</p></div></shreddit-comment>
+"""
+REDDIT_LINK = "https://www.reddit.com/r/test/comments/post1/a_synthetic_title/"
+
+
+def reddit_user(name, fail=()):
+    def parsed(url, parser):
+        assert parser == "reddit-user" and f"/user/{name}/" in url
+        if name in fail:
+            return {"type": parser, "success": False, "error_code": "BLOCKED"}
+        return {"type": parser, "success": True, "data": {"user": {"username": name, "created_at": "2020-05-05T00:00:00Z"},
+                "comments": [{"id": "19r" + name, "body": f"earlier words by {name}", "posted_at": "2026-11-01T10:00:00Z",
+                              "parent_id": "19rxyz", "post": {"id": "other"}}]}}
+    return parsed
+
+
+def reddit_client(fail=(), html=REDDIT_PAGE):
+    def parsed(url, parser):
+        name = url.split("/user/")[1].split("/")[0]
+        return reddit_user(name, fail)(url, parser)
+    return FakeClient(html=html, parsed=parsed)
+
+
+def test_reddit_thread_page_and_histories_as_parsed_exactly_as_returned():
+    progress = []
+    client = reddit_client()
+    bundle = collect(REDDIT_LINK, history=7, on_progress=lambda d, t: progress.append((d, t)), client=client)
+    assert bundle["site"] == "reddit"
+    assert bundle["pages"][0]["role"] == "thread" and bundle["pages"][0]["html"] == REDDIT_PAGE
+    profiles = bundle["pages"][1:]
+    assert [p["parsed"]["data"]["user"]["username"] for p in profiles] == ["alice", "bob_b"]   # not [deleted], not 'x'
+    assert all(p["role"] == "profile" and p["url"].startswith("https://www.reddit.com/user/") for p in profiles)
+    assert [c[2:] for c in client.calls if c[0] == "parse"] == [("reddit-user", 7)] * 2
+    assert progress == [(1, 2), (2, 2)]
+    t = bundle["thread"]
+    assert (t["platform"], t["title"], t["post_id"], t["commenters"], t["commenters_fetched"]) == \
+        ("Reddit", "A synthetic title", "post1", 3, 2)         # three authors; 'x' is not a valid Reddit name
+    assert (bundle["coverage"]["comments_found"], bundle["coverage"]["comments_expected"]) == (3, 5)
+    comments, prof, _ = convert(bundle)
+    assert {c["comment_id"] for c in comments} >= {"c1", "c2", "19ralice", "19rbob_b"}
+    assert {p["created_at"] for p in prof if p["username"] == "alice"} == {"2020-05-05T00:00:00Z"}
+
+
+def test_reddit_failed_history_is_skipped_and_noted():
+    bundle = collect(REDDIT_LINK, client=reddit_client(fail={"bob_b"}))
+    assert (bundle["thread"]["histories_ok"], bundle["thread"]["histories_failed"]) == (1, 1)
+    assert len(bundle["pages"]) == 2
+    assert any("1 commenters could not be fetched" in n for n in bundle["coverage"]["notes"])
+
+
+def test_reddit_bot_check_page_is_an_error_not_a_crash():
+    with pytest.raises(CollectError, match="bot check"):
+        collect(REDDIT_LINK, client=FakeClient(html=""))
+    with pytest.raises(CollectError, match="No comments"):
+        collect(REDDIT_LINK, client=FakeClient(html="<shreddit-post id='t3_p'></shreddit-post>"))
+
+
+def test_reddit_needs_a_key():
+    with pytest.raises(CollectError, match="CONTEXT_DEV_API_KEY"):
+        collect(REDDIT_LINK)
+
+
+def test_reddit_link_forms():
+    from swarm.collect import reddit
+    assert reddit.matches("https://www.reddit.com/r/test/comments/post1/a_title/")
+    assert reddit.matches("https://old.reddit.com/r/test/comments/post1/")
+    assert not reddit.matches("https://www.reddit.com/r/test/")
+    assert not reddit.matches("https://example.test/r/x/comments/abc")
