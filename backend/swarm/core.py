@@ -12,6 +12,15 @@ MAX_ITEMS = 20
 
 _TS = "strftime({}, '%Y-%m-%dT%H:%M:%SZ')"
 
+# An account says it is automated: "newsbot", "weather_feed", "Tech RSS" in its name, or "bot", "RSS", "automated" in its bio.
+# "not a bot" and "notabot" are a denial, not a declaration. A description of the accounts, never a verdict:
+# it changes no confidence, and a swarm can pose as a feed.
+_NOT_BOT = r"(not|no|never|non)[\s_-]*(an?[\s_-]*)?(ro)?bot"
+_SAYS_AUTOMATED = rf"""(regexp_matches(regexp_replace(lower(m.username || ' ' || coalesce(p.display_name, '')), '{_NOT_BOT}', ' ', 'g'),
+                   '(bot|botti|feed)s?([^a-z]|$)|\brss\b')
+    or regexp_matches(regexp_replace(lower(coalesce(p.bio, '')), '{_NOT_BOT}', ' ', 'g'),
+                      '\b(bots?|robots?|rss|automated|autopost\w*|botti)\b'))"""
+
 
 def _created_within_30_days(dates):
     dates = sorted(dates)
@@ -31,7 +40,7 @@ def _clusters(con, min_confidence):
                 [min_confidence])
     out = {c: {"id": c, "size": size, "confidence": round(conf, 3), "accounts": [], "edge_count": 0, "edges": [],
                "top_items": [], "first_seen": None, "last_seen": None, "created_within_30_days": None,
-               "copy_gap_seconds": None}
+               "copy_gap_seconds": None, "declared_automation": None}
            for c, size, conf in con.execute("select * from kept").fetchall()}
 
     for c, user, share in con.execute(
@@ -77,6 +86,11 @@ def _clusters(con, min_confidence):
     for c, found in dates.items():
         out[c]["created_within_30_days"] = _created_within_30_days(found)
 
+    for c, says in con.execute(
+            f"select m.cluster, count(*) from member m left join profiles p using (username) "
+            f"where m.cluster in (select cluster from kept) and {_SAYS_AUTOMATED} group by 1").fetchall():
+        out[c]["declared_automation"] = {"accounts": says, "of": out[c]["size"]}
+
     return sorted(out.values(), key=lambda c: (-c["confidence"], -c["size"], c["id"]))
 
 
@@ -114,7 +128,7 @@ def _ignore(con, path):
 
 def analyze(comments_path, profiles_path=None, *, min_confidence=MIN_CONFIDENCE, min_shared=d.MIN_SHARED,
             alpha=d.ALPHA, min_size=d.MIN_SIZE, pair_budget=d.PAIR_BUDGET, similar_text=False, ignore_path=None,
-            long_words=d.LONG_WORDS):
+            long_words=d.LONG_WORDS, similar_model=None):
     con = connect()
     try:
         warnings = load(con, comments_path, profiles_path)
@@ -123,7 +137,7 @@ def analyze(comments_path, profiles_path=None, *, min_confidence=MIN_CONFIDENCE,
             warnings += ignore_warnings
         signals, detect_warnings = d.detect(con, min_shared=min_shared, alpha=alpha, min_size=min_size,
                                             pair_budget=pair_budget, similar_text=similar_text,
-                                            long_words=long_words)
+                                            long_words=long_words, similar_model=similar_model)
         comments, accounts, synthetic = con.execute(
             "select count(*), count(distinct username), coalesce(bool_or(synthetic), false) from comments").fetchall()[0]
         return {
@@ -132,7 +146,7 @@ def analyze(comments_path, profiles_path=None, *, min_confidence=MIN_CONFIDENCE,
                        "comments": comments, "accounts": accounts, "synthetic": bool(synthetic)},
             "parameters": {"min_words": d.MIN_WORDS, "min_shared": min_shared, "long_words": long_words,
                            "alpha": alpha, "min_size": min_size, "min_confidence": min_confidence,
-                           **({"similar_text": True} if similar_text else {}),
+                           **({"similar_text": True, "similar_model": similar_model or d.similar.MODEL} if similar_text else {}),
                            **({"ignored_accounts": ignored} if ignore_path is not None else {})},
             "signals": signals,
             "warnings": warnings + detect_warnings,

@@ -109,7 +109,7 @@ def _clusters(links, min_size):
 
 
 def detect(con, *, min_shared=MIN_SHARED, alpha=ALPHA, min_size=MIN_SIZE, pair_budget=PAIR_BUDGET, similar_text=False,
-           long_words=LONG_WORDS):
+           long_words=LONG_WORDS, similar_model=None):
     warnings = []
     skipped = _skipped(con)
     fill = lambda sql: sql.replace("__WORDS__", _WORDS).replace("__LINK_KEY__", _LINK_KEY).replace("__MIN_WORDS__", str(int(MIN_WORDS)))
@@ -119,7 +119,7 @@ def detect(con, *, min_shared=MIN_SHARED, alpha=ALPHA, min_size=MIN_SIZE, pair_b
             skipped["similar_text"] = skipped["text"]
         else:
             con.execute(fill(_TEXT_NORM_SQL))
-            reason, similar_warnings = similar.add_items(con)
+            reason, similar_warnings = similar.add_items(con, model=similar_model)
             warnings += similar_warnings
             if reason:
                 skipped["similar_text"] = reason

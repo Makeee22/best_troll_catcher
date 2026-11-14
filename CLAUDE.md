@@ -96,7 +96,7 @@ Backend (Python 3.12+), run from `backend/`:
 ```bash
 python -m venv .venv && .venv/bin/pip install -r requirements-dev.txt   # once (run-time: requirements.txt)
 python -m swarm.synthetic DIR                                           # write the synthetic sample (comments.csv, profiles.csv)
-python -m swarm COMMENTS [--profiles FILE] [--out FILE] [--min-confidence X] [--similar-text] [--ignore FILE]   # the core: summary on stdout, JSON with --out; --similar-text needs pip install model2vec
+python -m swarm COMMENTS [--profiles FILE] [--out FILE] [--min-confidence X] [--similar-text [--similar-model NAME]] [--ignore FILE]   # the core: summary on stdout, JSON with --out; --similar-text needs pip install model2vec
 python -m swarm.cresci SOURCE_DIR OUT_DIR                               # convert Cresci 2017 to the standard format
 python -m swarm.inject COMMENTS [--out FILE] [--similar-text]           # benchmark: plant simulated swarms into a background file, tabulate what is found
 .venv/bin/uvicorn swarm.api:app --reload                                # API on :8000, synthetic sample

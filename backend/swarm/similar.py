@@ -1,7 +1,11 @@
 """Optional signal: texts that are nearly the same (reworded copies) become one shared item."""
 from .load import InputError
 
-MODEL = "minishlab/potion-base-8M"  # English; "minishlab/potion-multilingual-128M" for other languages
+ENGLISH_MODEL = "minishlab/potion-base-8M"  # 30 MB
+MULTILINGUAL_MODEL = "minishlab/potion-multilingual-128M"  # 512 MB download, about 2 GB of memory while loading
+MODEL = MULTILINGUAL_MODEL
+# Cosine at which two texts count as one. Among 20,000 background texts the multilingual model finds 293 pairs at 0.9,
+# the English one 3,087. A looser cut (0.8) chains the synthetic sample's texts into one group of over 200, so it stays.
 THRESHOLD = 0.9
 MAX_TEXTS = 100_000
 # Near-duplicate pairs allowed before the signal is skipped: a templated dataset would otherwise run for minutes.
@@ -11,11 +15,12 @@ MAX_GROUP = 200
 BLOCK = 1000
 
 
-def add_items(con, model=MODEL, threshold=THRESHOLD, max_texts=MAX_TEXTS, max_pairs=MAX_PAIRS, max_group=MAX_GROUP):
+def add_items(con, model=None, threshold=THRESHOLD, max_texts=MAX_TEXTS, max_pairs=MAX_PAIRS, max_group=MAX_GROUP):
     """Add rows of kind `similar_text` to `item`. Needs the table `text_norm(key, norm)` made by detect.
 
     Returns (reason, warnings): `reason` says why the signal was skipped, or is None when it ran.
     """
+    model = model or MODEL
     count = con.execute("select count(*) from text_norm").fetchall()[0][0]
     if count < 2:
         return "fewer than 2 distinct texts to compare", []

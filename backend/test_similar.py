@@ -1,4 +1,5 @@
 import importlib.util
+import random
 import subprocess
 import sys
 
@@ -6,11 +7,26 @@ import pytest
 
 from swarm.detect import detect
 from swarm.load import InputError, connect, load
+from swarm import similar
 from swarm.similar import add_items
 from swarm.synthetic import write
 
 HAS_MODEL2VEC = importlib.util.find_spec("model2vec") is not None
 needs_model2vec = pytest.mark.skipif(not HAS_MODEL2VEC, reason="model2vec not installed")
+
+
+@pytest.fixture(autouse=True)
+def small_model(monkeypatch):
+    """The 30 MB English model: the default multilingual one is a 512 MB download."""
+    monkeypatch.setattr(similar, "MODEL", similar.ENGLISH_MODEL)
+
+
+def multilingual_cached():
+    try:
+        from huggingface_hub import try_to_load_from_cache
+    except ImportError:
+        return False
+    return isinstance(try_to_load_from_cache(similar.MULTILINGUAL_MODEL, "model.safetensors"), str)
 
 
 def clusters(con):
@@ -42,12 +58,12 @@ def test_reworded_swarm_is_found_with_the_layer(tmp_path):
     assert signals["similar_text"]["status"] == "used" and signals["similar_text"]["items"] > 0
 
 
-def _similar_item_count(tmp_path, make_csv, rows):
+def _similar_item_count(tmp_path, make_csv, rows, threshold=0.5):
     con = connect()
     load(con, make_csv(tmp_path, "c.csv", rows))
     detect(con)
     con.execute("create or replace table text_norm as select distinct hash(text) as key, text as norm from comments")
-    reason, _ = add_items(con, threshold=0.5)
+    reason, _ = add_items(con, threshold=threshold)
     assert reason is None
     return con.execute("select count(*) from item where kind = 'similar_text'").fetchall()[0][0]
 
@@ -124,3 +140,16 @@ def test_model_failure_is_an_input_error_not_a_traceback(tmp_path, monkeypatch):
 def test_core_imports_without_numpy():
     code = "import sys; import swarm.detect, swarm.core, swarm.api; sys.exit('numpy' in sys.modules)"
     assert subprocess.run([sys.executable, "-c", code]).returncode == 0
+
+
+@pytest.mark.skipif(not (HAS_MODEL2VEC and multilingual_cached()), reason="multilingual model not downloaded")
+def test_finnish_rewordings_become_one_item_and_unrelated_texts_do_not(tmp_path, make_csv, monkeypatch):
+    monkeypatch.setattr(similar, "MODEL", similar.MULTILINGUAL_MODEL)
+    pairs = [("hallitus nostaa taas veroja ensi vuonna eikä kukaan kysy kansalaisten mielipidettä",
+              "hallitus nostaa jälleen veroja ensi vuonna eikä kukaan kysy kansalaisten mielipidettä"),
+             ("kaupunki käyttää rahaa uuteen siltaan ja se on pelkkää haaskausta sanon minä",
+              "kaupunki käyttää rahaa uuteen siltaan ja se on pelkkää tuhlausta sanon minä")]
+    rows = [{"username": u, "text": pair[k % 2]} for pair in pairs for k, u in enumerate("abc")]
+    rows += [{"username": "d", "text": t} for t in ("kävin eilen mökillä ja järvi oli jo melkein jäässä",
+                                                     "hallitus esitteli eilen uuden budjetin eduskunnalle")]
+    assert _similar_item_count(tmp_path, make_csv, rows, threshold=similar.THRESHOLD) == 6    # a, b, c twice; d none

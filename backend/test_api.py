@@ -20,7 +20,7 @@ def test_default_is_the_synthetic_sample(monkeypatch):
     body = c.get("/api/swarms").json()
     assert body["source"]["synthetic"] is True and len(body["swarms"]) == 3
     first = body["swarms"][0]
-    assert set(first) == {"id", "size", "confidence", "edge_count", "first_seen", "last_seen", "sample"}
+    assert set(first) == {"id", "size", "confidence", "edge_count", "first_seen", "last_seen", "sample", "declared_automation"}
     detail = c.get(f"/api/swarms/{first['id']}").json()
     assert detail["id"] == first["id"] and detail["accounts"]
     assert c.get("/api/swarms/nope").status_code == 404

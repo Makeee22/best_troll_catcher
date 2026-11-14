@@ -4,6 +4,7 @@ import sys
 
 from .core import MIN_CONFIDENCE, analyze
 from .load import InputError
+from .similar import ENGLISH_MODEL, MODEL as SIMILAR_MODEL
 
 
 def main(argv=None):
@@ -16,12 +17,14 @@ def main(argv=None):
                         help=f"lowest confidence reported (default {MIN_CONFIDENCE})")
     parser.add_argument("--similar-text", action="store_true",
                         help="also link accounts that post reworded copies (needs pip install model2vec)")
+    parser.add_argument("--similar-model", metavar="NAME", default=SIMILAR_MODEL,
+                        help=f"embedding model for --similar-text (default {SIMILAR_MODEL}; English only: {ENGLISH_MODEL})")
     parser.add_argument("--ignore", metavar="FILE",
                         help="file of usernames to leave out, one per line (known feeds, staff accounts)")
     args = parser.parse_args(argv)
     try:
         result = analyze(args.comments, args.profiles, min_confidence=args.min_confidence,
-                         similar_text=args.similar_text, ignore_path=args.ignore)
+                         similar_text=args.similar_text, ignore_path=args.ignore, similar_model=args.similar_model)
     except InputError as e:
         print(f"error: {e}", file=sys.stderr)
         return 2
@@ -42,7 +45,9 @@ def main(argv=None):
     clusters = result["clusters"]
     print(f"{len(clusters)} clusters at confidence >= {args.min_confidence}")
     for c in clusters:
-        print(f"  {c['id']}  size {c['size']}  confidence {c['confidence']}")
+        says = c["declared_automation"]
+        note = f"  ({says['accounts']} of {says['of']} say they are automated: a feed or a swarm posing as one)" if says else ""
+        print(f"  {c['id']}  size {c['size']}  confidence {c['confidence']}{note}")
     metrics = result["metrics"]
     if metrics:
         m = metrics["at_min_confidence"]

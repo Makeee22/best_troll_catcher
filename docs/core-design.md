@@ -169,7 +169,8 @@ One JSON document, the same from the command line and the API. It is self-contai
                      "accounts": 8, "first_seen": "2026-11-01T03:13:55Z", "last_seen": "2026-11-01T03:14:21Z"}],
       "first_seen": "2026-11-01T03:13:55Z",
       "last_seen": "2026-11-01T22:19:31Z",
-      "created_within_30_days": {"accounts": 8, "of": 8}
+      "created_within_30_days": {"accounts": 8, "of": 8},
+      "declared_automation": null
     }
   ],
   "metrics": null
@@ -179,6 +180,7 @@ One JSON document, the same from the command line and the API. It is self-contai
 - `clusters` are sorted by confidence, highest first, then by size.
 - `edges` holds at most the 500 strongest links and `top_items` the 20 most widely shared items, so one huge cluster cannot make the file unusable. `edge_count` is the true number.
 - `created_within_30_days` is `null` without creation dates.
+- `declared_automation` counts the members that say they are automated ("newsbot", "weather_feed", "Tech RSS" in the username or display name; "bot", "RSS", "automated" in the bio; a denial such as "not a bot" does not count). `null` when none does. It is a description, not a verdict: it changes no confidence and hides no cluster. See "Feeds and swarms" below.
 - `metrics` is filled when `profiles.csv` has labels: counts and precision, recall and false-positive rate at the chosen cut, the same at a fixed list of cuts, and the share flagged per label.
 
 ## Evaluation
@@ -189,7 +191,8 @@ One JSON document, the same from the command line and the API. It is self-contai
 
 ## Known limits
 
-- **Benign automation is flagged.** News feeds that post the same wire text are coordinated by this definition. The synthetic set contains three, and they are reported with confidence 1.0. Telling them from a swarm needs knowledge the core does not have.
+- **Benign automation is flagged.** News feeds that post the same wire text are coordinated by this definition. The synthetic set contains three, and they are reported with confidence 1.0. They are marked with `declared_automation` when their names say so (see "Feeds and swarms"), but the core cannot prove a feed harmless.
+- **Languages without spaces.** Words are runs of letters, so a Chinese or Japanese sentence counts as one word and gives no text item (Thai splits at vowel marks, not at words). Such comments are compared only by their links, reposts and replies.
 - **Reworded copies are missed** unless the optional similar-text layer is on.
 - **Loose groups are missed.** Accounts that share under 20% of their content with each other fall below the default cut. Measured with planted swarms: 6 copied messages are found with up to 24 own posts per member and missed with 30.
 - **Small data proves little.** With few comments the chance test rarely passes, by design. The long-text rule helps most here: on Cresci thinned to 10 comments per account, recall went from 0.12 to 0.78.
@@ -198,13 +201,31 @@ One JSON document, the same from the command line and the API. It is self-contai
 - **The profile file adds evidence only,** not confidence. See finding 5.
 - **Timing is not used for linking.** A swarm that shares nothing but reacts within seconds is not found.
 
+### Feeds and swarms
+
+A benign feed and a bot swarm can look the same to the core: both post the same text, often within seconds. Posting style does not tell them apart either. In Cresci the bot accounts reply in 5% of their posts and mention someone in 9.5%, against 26% and 61% for humans, so a rule such as "broadcasts, does not address people" would mark the bot swarms as feeds.
+
+What a benign feed usually does and a swarm avoids is **say what it is**. `declared_automation` reports only that: how many members call themselves a bot, a feed or RSS in their name or bio. Rules:
+
+- It changes nothing else: same clusters, same confidence, same order (a test checks this).
+- It is a reason to look at the source, never a reason to dismiss a cluster. A swarm can pose as a feed, and one that does is still reported in full.
+- It needs only usernames, so it works on scraped comment sections without profiles.
+- It cannot be measured on Cresci: our conversion keeps numeric account ids and no bios, so no Cresci cluster is marked (0 of 21). On the synthetic sample the three feeds are marked and both swarms are not.
+- Known gaps: a name such as "Talbot" matches; feeds that do not name themselves are not marked.
+
 ## Optional layer: similar text
 
-Catches copies that were reworded. A small static embedding model (model2vec, runs on a CPU) turns each distinct text into a vector. Texts whose vectors are nearly parallel (cosine at least 0.9) become one item of a fifth signal, `similar_text`, and go through the same steps 3–8.
+Catches copies that were reworded. A static embedding model (model2vec, runs on a CPU) turns each distinct text into a vector. Texts whose vectors are nearly parallel (cosine at least 0.9) become one item of a fifth signal, `similar_text`, and go through the same steps 3–8.
 
 - Off by default. Needs `pip install model2vec` and a one-time model download.
+- **Model:** `minishlab/potion-multilingual-128M` by default (512 MB download, about 1.9 GB of memory, 4 s to load). `--similar-model minishlab/potion-base-8M` is the English-only model used before (30 MB, 150 MB of memory). Measured 14.11 (PLAN.md Results):
+  - on English data the multilingual model finds the same planted swarms, at equal or higher confidence, with 0 background accounts flagged;
+  - among 20,000 distinct background texts it puts 293 pairs above the cut, the English model 3,087, so far fewer unrelated texts are joined;
+  - on hand-written Finnish texts, unrelated pairs score at most 0.43 with it and 0.73 with the English model.
+- **Rewording with synonyms is still missed.** Finnish rewordings that swap words for synonyms score 0.79–0.85, under the 0.9 cut, with either model. A cut of 0.8 would catch them, but it chains the synthetic sample's texts into one group of over 200, which is then left out, so the cut stays at 0.9.
+- **The chance test for this signal is weak on clean data.** Its `S` is computed among texts that already have a near-duplicate, so when the swarm's texts are the only near-duplicates, the swarm sets its own rate (`S` = 0.05 in a small test) and is not found. On real backgrounds, which have many near-duplicates of their own, planted reworded swarms are found (8 of 8 on 300 Cresci humans).
 - Compares all distinct texts with each other, so it is limited to 100,000 distinct texts. Above that it is skipped with a warning.
-- Not measured yet. Cresci's bots copy word for word, so its benefit there is zero by construction. The build plan measures it on a synthetic reworded swarm and on a sample of real humans, for false positives.
+- Cresci's bots copy word for word, so its benefit there is zero by construction.
 
 It is the last task in the build plan and the first to cut.
 

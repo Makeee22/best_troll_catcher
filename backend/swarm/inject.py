@@ -179,9 +179,12 @@ def main(argv=None):
                         help=f"lowest confidence reported (default {MIN_CONFIDENCE})")
     parser.add_argument("--similar-text", action="store_true",
                         help="also link accounts that post reworded copies (needs pip install model2vec)")
+    parser.add_argument("--similar-model", metavar="NAME", help="embedding model for --similar-text")
     parser.add_argument("--seed", type=int, default=0, help="seed for the planted swarms (default 0)")
     args = parser.parse_args(argv)
     options = {"similar_text": True} if args.similar_text else {}
+    if args.similar_text and args.similar_model:
+        options["similar_model"] = args.similar_model
     try:
         result = run(args.comments, GRID, args.seed, args.min_confidence, **options)
     except InputError as e:

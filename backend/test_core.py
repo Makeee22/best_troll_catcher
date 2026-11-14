@@ -17,13 +17,38 @@ def test_result_document(tmp_path):
     assert result["metrics"]["at_min_confidence"]["precision"] == 0.8125
     swarm = result["clusters"][1]
     assert set(swarm) == {"id", "size", "confidence", "accounts", "edge_count", "edges", "top_items",
-                          "first_seen", "last_seen", "created_within_30_days", "copy_gap_seconds"}
+                          "first_seen", "last_seen", "created_within_30_days", "copy_gap_seconds", "declared_automation"}
     assert swarm["confidence"] == 0.375 and swarm["edge_count"] == 28 and len(swarm["edges"]) == 28
     assert swarm["accounts"][0] == {"username": "troll_0_0", "copied_share": 0.375}
     assert swarm["edges"][0].keys() == {"source", "target", "kind", "shared"}
     assert len(swarm["top_items"]) == 6 and swarm["top_items"][0]["accounts"] == 8
     assert swarm["top_items"][0]["kind"] == "text" and swarm["top_items"][0]["first_seen"].endswith("Z")
     assert swarm["created_within_30_days"] == {"accounts": 8, "of": 8}
+    assert result["clusters"][0]["declared_automation"] == {"accounts": 3, "of": 3}    # newsfeed_0..2
+    assert swarm["declared_automation"] is None and result["clusters"][2]["declared_automation"] is None
+
+
+def _trio_profiles(tmp_path, make_csv, names, bios):
+    rows = [{"username": u, "text": f"the plan for item {i} is ready for everyone now"} for i in range(4) for u in names]
+    rows += [{"username": u, "text": f"{u} wrote note number {i} about the weather today"}
+             for u in names + [f"bg{k}" for k in range(50)] for i in range(10)]
+    profiles = [{"username": u, "bio": b} for u, b in zip(names, bios)]
+    return analyze(make_csv(tmp_path, "c.csv", rows), make_csv(tmp_path, "p.csv", profiles), min_confidence=0)
+
+
+def test_a_swarm_posing_as_a_feed_is_marked_but_still_reported_unchanged(tmp_path, make_csv):
+    plain = _trio_profiles(tmp_path, make_csv, ["a", "b", "c"], ["", "", ""])
+    posing = _trio_profiles(tmp_path, make_csv, ["a", "b", "c"], ["Automated news feed", "a bot", ""])
+    strip = lambda r: [{k: v for k, v in c.items() if k != "declared_automation"} for c in r["clusters"]]
+    assert strip(posing) == strip(plain) and len(plain["clusters"]) == 1
+    assert plain["clusters"][0]["declared_automation"] is None
+    assert posing["clusters"][0]["declared_automation"] == {"accounts": 2, "of": 3}
+
+
+def test_denying_or_feeding_is_not_declaring(tmp_path, make_csv):
+    result = _trio_profiles(tmp_path, make_csv, ["notabot1", "talk_feedback", "cat_lady"],
+                            ["I am NOT a bot", "real person, no bots here", "I feed stray cats"])
+    assert result["clusters"][0]["declared_automation"] is None
 
 
 def test_ignore_list_leaves_accounts_out(tmp_path):

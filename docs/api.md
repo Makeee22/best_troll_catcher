@@ -60,7 +60,8 @@ Shortened: the example shows two of the three swarms and the `warnings` list is 
       "last_seen": "2026-11-01T18:03:30Z",
       "sample": {"kind": "text",
                  "value": "WIRE: travel at town than year in wages for schools many wages budget less",
-                 "accounts": 3, "first_seen": "2026-11-01T01:23:20Z", "last_seen": "2026-11-01T01:23:22Z"}
+                 "accounts": 3, "first_seen": "2026-11-01T01:23:20Z", "last_seen": "2026-11-01T01:23:22Z"},
+      "declared_automation": {"accounts": 3, "of": 3}
     },
     {
       "id": "477b0a2c01",
@@ -71,7 +72,8 @@ Shortened: the example shows two of the three swarms and the `warnings` list is 
       "last_seen": "2026-11-01T19:26:32Z",
       "sample": {"kind": "text",
                  "value": "@user_070 cook home more at new rising plan for a stay roads budget",
-                 "accounts": 8, "first_seen": "2026-11-01T03:56:26Z", "last_seen": "2026-11-01T03:56:44Z"}
+                 "accounts": 8, "first_seen": "2026-11-01T03:56:26Z", "last_seen": "2026-11-01T03:56:44Z"},
+      "declared_automation": null
     }
   ]
 }
@@ -87,10 +89,11 @@ Shortened: the example shows two of the three swarms and the `warnings` list is 
 | `confidence` | 0 to 1: on average, the share of a member's own content that another member also has. Not a probability. See `docs/core-design.md`. | A bar or a number. |
 | `edge_count` | Number of linked account pairs (the true number, even when `edges` is cut). | |
 | `sample` | The most widely shared item of the cluster (same shape as one `top_items` entry below), or `null`. | A one-line preview. |
+| `declared_automation` | How many members say they are automated (`accounts`), out of the cluster's size (`of`): "bot", "feed" or "RSS" in the username or display name, or "bot", "RSS", "automated" in the bio; "not a bot" does not count. `null` when no member does. **A description, not a verdict:** it never changes `confidence` or which clusters are listed, and a swarm can pose as a feed. | A neutral note such as "3 of 3 accounts say they are automated (a feed, or a swarm posing as one): check the source". Never hide or grey out the cluster for it. |
 
 `kind` is the signal that found the item: `text`, `link`, `repost`, `reply`, or `similar_text` (only when the core ran with `--similar-text`; the item is then a group of reworded copies, shown as its earliest text).
 
-**Read this before building the list view:** a harmless automated feed that posts the same wire text is "coordinated" by this definition and can score higher than a real swarm (the first entry above is a synthetic news feed, confidence 1.0). The core cannot tell the two apart; this is listed in `docs/core-design.md` under "Known limits". Show `confidence` and the evidence, not a verdict.
+**Read this before building the list view:** a harmless automated feed that posts the same wire text is "coordinated" by this definition and can score higher than a real swarm (the first entry above is a synthetic news feed, confidence 1.0). The core cannot tell the two apart; `declared_automation` only says whether the accounts call themselves automated (`docs/core-design.md`, "Feeds and swarms"). Show `confidence` and the evidence, not a verdict.
 
 ## `GET /api/swarms/{id}`
 
@@ -119,7 +122,8 @@ Shortened: the lists `accounts`, `edges` and `top_items` have one to two entries
   "first_seen": "2026-11-01T01:23:20Z",
   "last_seen": "2026-11-01T18:03:30Z",
   "created_within_30_days": {"accounts": 3, "of": 3},
-  "copy_gap_seconds": {"median": 5.0, "items": 5}
+  "copy_gap_seconds": {"median": 5.0, "items": 5},
+  "declared_automation": {"accounts": 3, "of": 3}
 }
 ```
 
@@ -129,6 +133,7 @@ Shortened: the lists `accounts`, `edges` and `top_items` have one to two entries
 | `edges` | Linked account pairs. `shared` = how many separate items the two have in common; `kind` = which signal linked them. At most the 500 strongest. | The account graph. |
 | `top_items` | The items most accounts of the cluster share, with how many (`accounts`) and when. At most 20. | The evidence list and timeline. |
 | `created_within_30_days` | How many of the cluster's accounts were created within one 30-day window (`accounts`), out of those with a creation date (`of`). `null` without creation dates. | A badge, as supporting evidence only. |
+| `declared_automation` | As in the list above. | As in the list above. |
 | `copy_gap_seconds` | For each shared item that at least two members have a time for: the average time in seconds from one member's copy to the next. `median` is the median of those gaps, over `items` shared items. `null` when no shared item has two times. Evidence only: it never changes which clusters are listed or their `confidence`. | A line such as "copies follow each other within seconds". |
 
 ## `GET /api/metrics`
@@ -171,13 +176,13 @@ Counted per account: a flagged account is one that is in a listed cluster. `by_l
 For people who run the core themselves. Python 3.12+ and `pip install -r requirements.txt` in `backend/`.
 
 ```bash
-python -m swarm COMMENTS [--profiles FILE] [--out FILE] [--min-confidence X] [--similar-text] [--ignore FILE]
+python -m swarm COMMENTS [--profiles FILE] [--out FILE] [--min-confidence X] [--similar-text] [--similar-model NAME] [--ignore FILE]
 ```
 
 - Warnings go to standard error, one per line, starting with `warning: `.
-- Standard output is a short summary: one line per signal, the number of clusters, one line per cluster (id, size, confidence), and, with labels, precision, recall and false-positive rate at the cut. If the data is synthetic, the first line says so.
+- Standard output is a short summary: one line per signal, the number of clusters, one line per cluster (id, size, confidence, and how many members say they are automated, if any), and, with labels, precision, recall and false-positive rate at the cut. If the data is synthetic, the first line says so.
 - `--out FILE` writes the full result as JSON. That file is what `RESULT_FILE` expects, and its `clusters` list is what the API calls `swarms`.
-- `--similar-text` (optional, off by default) also links accounts that post reworded copies of the same text. It needs `pip install model2vec` and downloads a small model once. It is slower (about 40 s for 80,000 distinct texts) and limited to 100,000 distinct texts. It adds a `similar_text` entry to `signals`. It is skipped, with a reason, when there are fewer than 2 distinct texts, more than 100,000, or too many near-duplicate pairs; groups of more than 200 similar texts are left out as generic.
+- `--similar-text` (optional, off by default) also links accounts that post reworded copies of the same text. It needs `pip install model2vec` and downloads the multilingual model `minishlab/potion-multilingual-128M` once (512 MB; about 1.9 GB of memory while it runs). `--similar-model minishlab/potion-base-8M` uses the earlier English-only model instead (30 MB). The result lists the model in `parameters.similar_model`. It is slower (about 40 s for 80,000 distinct texts) and limited to 100,000 distinct texts. It adds a `similar_text` entry to `signals`. It is skipped, with a reason, when there are fewer than 2 distinct texts, more than 100,000, or too many near-duplicate pairs; groups of more than 200 similar texts are left out as generic.
 - `--ignore FILE` leaves accounts out before anything is compared: a text file with one username per line (exact match, blank lines and lines starting with `#` are skipped). Use it for feeds or staff accounts you know are legitimate. The result lists `parameters.ignored_accounts`, and a warning says how many accounts and comments were left out and how many names matched no account. An unreadable file, or a list that removes every comment, is an error. In Python: `analyze(..., ignore_path=FILE)`.
 - Links are compared after normalising: the scheme (`http` or `https`), `www.`, tracking parameters (`utm_*`, `fbclid`, `gclid`), the fragment and a trailing slash do not make two links different.
 - A bad input ends with one line `error: <what to fix>` and exit code 2, never a traceback.
