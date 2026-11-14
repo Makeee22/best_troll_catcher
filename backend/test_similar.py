@@ -1,3 +1,4 @@
+import importlib.util
 import subprocess
 import sys
 
@@ -8,7 +9,8 @@ from swarm.load import InputError, connect, load
 from swarm.similar import add_items
 from swarm.synthetic import write
 
-model2vec = pytest.importorskip("model2vec")
+HAS_MODEL2VEC = importlib.util.find_spec("model2vec") is not None
+needs_model2vec = pytest.mark.skipif(not HAS_MODEL2VEC, reason="model2vec not installed")
 
 
 def clusters(con):
@@ -31,6 +33,7 @@ def test_reworded_swarm_is_missed_without_the_layer(tmp_path):
     assert not any(n.startswith("troll_2_") for g in clusters(con) for n in g)
 
 
+@needs_model2vec
 def test_reworded_swarm_is_found_with_the_layer(tmp_path):
     con, signals, _ = run(tmp_path, similar_text=True)
     found = clusters(con)
@@ -49,12 +52,14 @@ def _similar_item_count(tmp_path, make_csv, rows):
     return con.execute("select count(*) from item where kind = 'similar_text'").fetchall()[0][0]
 
 
-def test_groups_of_word_for_word_copies_add_no_similar_items(tmp_path, make_csv):
+@needs_model2vec
+def test_groups_of_word_for_word_copies_still_add_items(tmp_path, make_csv):
     first, second = "the council voted on a new budget for schools today", "the council voted on a new budget for roads today"
     rows = [{"username": u, "text": t} for u in "abc" for t in (first, second)]
-    assert _similar_item_count(tmp_path, make_csv, rows) == 0
+    assert _similar_item_count(tmp_path, make_csv, rows) == 3          # recall over counting once
 
 
+@needs_model2vec
 def test_a_group_with_a_one_off_variant_adds_items(tmp_path, make_csv):
     first, second = "the council voted on a new budget for schools today", "the council voted on a new budget for roads today"
     rows = [{"username": u, "text": t} for u in "abc" for t in (first, second)]
@@ -84,6 +89,7 @@ def test_too_many_texts_skips_with_a_reason(tmp_path):
     assert reason and con.execute("select count(*) from item").fetchall()[0][0] == before
 
 
+@needs_model2vec
 def test_too_many_near_duplicate_pairs_skips(tmp_path):
     con = connect()
     load(con, *write(str(tmp_path), reworded=True))
@@ -93,6 +99,7 @@ def test_too_many_near_duplicate_pairs_skips(tmp_path):
     assert reason and "near-duplicate" in reason
 
 
+@needs_model2vec
 def test_oversized_groups_are_left_out_with_a_warning(tmp_path):
     con = connect()
     load(con, *write(str(tmp_path), reworded=True))
@@ -102,9 +109,11 @@ def test_oversized_groups_are_left_out_with_a_warning(tmp_path):
     assert reason is None and any("left out" in w for w in warnings)
 
 
+@needs_model2vec
 def test_model_failure_is_an_input_error_not_a_traceback(tmp_path, monkeypatch):
     def fail(*args, **kwargs):
         raise OSError("no network")
+    import model2vec
     monkeypatch.setattr(model2vec.StaticModel, "from_pretrained", fail)
     con = connect()
     load(con, *write(str(tmp_path), reworded=True))

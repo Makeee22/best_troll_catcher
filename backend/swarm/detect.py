@@ -45,7 +45,8 @@ from raw group by username, kind, key
 _TEXT_NORM_SQL = r"""
 create or replace table text_norm as
 select distinct hash(norm) as key, norm from (
-  select array_to_string(__WORDS__, ' ') as norm, len(__WORDS__) as n from comments where repost_of is null)
+  select array_to_string(words, ' ') as norm, len(words) as n
+  from (select __WORDS__ as words from comments where repost_of is null))
 where n >= __MIN_WORDS__
 """
 

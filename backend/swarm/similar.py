@@ -45,14 +45,19 @@ def add_items(con, model=MODEL, threshold=THRESHOLD, max_texts=MAX_TEXTS, max_pa
     pairs = 0
     # shortcut: all-against-all comparison, fine to 100,000 distinct texts; use an approximate-neighbour index beyond that
     for start in range(0, count, BLOCK):
-        sims = vectors[start:start + BLOCK] @ vectors.T
-        rows, cols = np.nonzero(sims >= threshold)
-        keep = cols > rows + start  # each pair once, not the diagonal
-        rows, cols = rows[keep] + start, cols[keep]
+        block = vectors[start:start + BLOCK]
+        hit = (block @ vectors[start:].T) >= threshold  # columns before `start` were compared in earlier blocks
+        # Count before extracting indices, so a templated dataset cannot allocate hundreds of millions of them.
+        # The block's own lower triangle and diagonal (at most BLOCK * (BLOCK + 1) / 2 hits) are not pairs.
+        if pairs + int(np.count_nonzero(hit)) - len(block) * (len(block) + 1) // 2 > max_pairs:
+            return f"more than {max_pairs:,} near-duplicate text pairs (templated data?)", []
+        rows, cols = np.nonzero(hit)
+        keep = cols > rows  # each pair once, not the diagonal (row r and column c are texts start + r and start + c)
+        rows, cols = rows[keep], cols[keep]
         pairs += len(rows)
         if pairs > max_pairs:
             return f"more than {max_pairs:,} near-duplicate text pairs (templated data?)", []
-        for r, c in zip(rows.tolist(), cols.tolist()):
+        for r, c in zip((rows + start).tolist(), (cols + start).tolist()):
             parent[find(r)] = find(c)
 
     groups = {}
@@ -62,18 +67,17 @@ def add_items(con, model=MODEL, threshold=THRESHOLD, max_texts=MAX_TEXTS, max_pa
     too_big = sum(1 for g in groups.values() if len(g) > max_group)
     if too_big:
         warnings.append(f"similar_text: left out {too_big} groups of more than {max_group} similar texts (generic text chained together)")
-    members = [(keys[i], min(keys[j] for j in g)) for g in groups.values() if 2 <= len(g) <= max_group for i in g]
+    members = [(keys[i], gkey) for g in groups.values() if 2 <= len(g) <= max_group
+               for gkey in [min(keys[j] for j in g)] for i in g]
     if members:
         con.execute("create or replace temp table text_group as select unnest(?::UBIGINT[]) as key, unnest(?::UBIGINT[]) as gkey",
                     [[m[0] for m in members], [m[1] for m in members]])
-        # Only groups with a text that nobody else posted word for word: groups of exact copies are already linked by `text`.
+        # Word-for-word copies in a group are counted under `text` as well: recall matters more than counting once.
         con.execute("""
             insert into item
-            with df as (select key, count(*) as df from item where kind = 'text' group by key),
-            keep as (select g.gkey from text_group g join df using (key) group by g.gkey having min(df.df) = 1)
             select i.username, 'similar_text', g.gkey, first(i.value order by i.first_seen nulls last, i.value),
                    min(i.first_seen), max(i.last_seen)
             from item i join text_group g on i.key = g.key
-            where i.kind = 'text' and g.gkey in (select gkey from keep)
+            where i.kind = 'text'
             group by i.username, g.gkey""")
     return None, warnings
