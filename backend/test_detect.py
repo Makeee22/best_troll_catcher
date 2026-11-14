@@ -15,6 +15,16 @@ def shared(owners, n, tag="plan"):
     return [{"username": o, "text": f"the {tag} for item {i} is ready for everyone now"} for i in range(n) for o in owners]
 
 
+def one_text(owners, n_words):
+    """One text of exactly n_words words (at most 13), posted once by each owner."""
+    return [{"username": o, "text": " ".join(WORDS[:n_words - 1] + ["end"])} for o in owners]
+
+
+def trio(n_words):
+    """a, b, c share one text of n_words words and have a few of their own; many other accounts keep chance matches rare."""
+    return one_text("abc", n_words) + unique("a", 5) + unique("b", 5) + unique("c", 5) + background(300, 20)
+
+
 def background(n_accounts, n_texts):
     return [row for a in range(n_accounts) for row in unique(f"bg{a}", n_texts)]
 
@@ -54,10 +64,31 @@ def test_benign_feeds_are_flagged_known_limit(tmp_path):
     assert {"newsfeed_0", "newsfeed_1", "newsfeed_2"} in clusters(con)
 
 
-def test_one_shared_item_links_nobody(tmp_path, make_csv):
-    rows = shared(["a", "b", "c"], 1) + unique("a", 5) + unique("b", 5) + unique("c", 5) + background(50, 20)
-    con, _, _ = run(tmp_path, make_csv, rows)
+def test_one_shared_short_text_links_nobody(tmp_path, make_csv):   # 7 words: under LONG_WORDS
+    con, _, _ = run(tmp_path, make_csv, trio(7))
     assert clusters(con) == []
+
+
+def test_one_shared_long_text_links_a_cluster(tmp_path, make_csv):
+    con, _, _ = run(tmp_path, make_csv, trio(12))
+    assert clusters(con) == [{"a", "b", "c"}]
+    assert con.execute("select max(words) from item where username = 'a' and kind = 'text'").fetchall() == [(12,)]
+    assert con.execute("select count(*) from item where kind <> 'text' and words is not null").fetchall() == [(0,)]
+
+
+def test_the_long_text_rule_can_be_switched_off(tmp_path, make_csv):
+    for off in (None, 0):
+        con, _, _ = run(tmp_path, make_csv, trio(12), long_words=off)
+        assert clusters(con) == []
+
+
+def test_a_long_text_posted_by_many_links_nobody(tmp_path, make_csv):
+    # 40 of 60 accounts post it once: a pair is expected to share it by chance about 0.8 times.
+    # x, y, z share 20 texts, which keeps the chance test's cut in reach, so only that test rejects the 40.
+    rows = one_text([f"bg{a}" for a in range(40)], 12) + background(60, 20) + shared("xyz", 20, tag="swarm")
+    rows += [r for o in "xyz" for r in unique(o, 5)]
+    con, _, _ = run(tmp_path, make_csv, rows)
+    assert clusters(con) == [{"x", "y", "z"}]
 
 
 def test_everyone_sharing_everything_is_not_surprising(tmp_path, make_csv):

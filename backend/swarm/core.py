@@ -113,7 +113,8 @@ def _ignore(con, path):
 
 
 def analyze(comments_path, profiles_path=None, *, min_confidence=MIN_CONFIDENCE, min_shared=d.MIN_SHARED,
-            alpha=d.ALPHA, min_size=d.MIN_SIZE, pair_budget=d.PAIR_BUDGET, similar_text=False, ignore_path=None):
+            alpha=d.ALPHA, min_size=d.MIN_SIZE, pair_budget=d.PAIR_BUDGET, similar_text=False, ignore_path=None,
+            long_words=d.LONG_WORDS):
     con = connect()
     try:
         warnings = load(con, comments_path, profiles_path)
@@ -121,15 +122,17 @@ def analyze(comments_path, profiles_path=None, *, min_confidence=MIN_CONFIDENCE,
             ignore_warnings, ignored = _ignore(con, ignore_path)
             warnings += ignore_warnings
         signals, detect_warnings = d.detect(con, min_shared=min_shared, alpha=alpha, min_size=min_size,
-                                            pair_budget=pair_budget, similar_text=similar_text)
+                                            pair_budget=pair_budget, similar_text=similar_text,
+                                            long_words=long_words)
         comments, accounts, synthetic = con.execute(
             "select count(*), count(distinct username), coalesce(bool_or(synthetic), false) from comments").fetchall()[0]
         return {
             "source": {"comments_file": os.path.basename(comments_path),
                        "profiles_file": os.path.basename(profiles_path) if profiles_path else None,
                        "comments": comments, "accounts": accounts, "synthetic": bool(synthetic)},
-            "parameters": {"min_words": d.MIN_WORDS, "min_shared": min_shared, "alpha": alpha, "min_size": min_size,
-                           "min_confidence": min_confidence, **({"similar_text": True} if similar_text else {}),
+            "parameters": {"min_words": d.MIN_WORDS, "min_shared": min_shared, "long_words": long_words,
+                           "alpha": alpha, "min_size": min_size, "min_confidence": min_confidence,
+                           **({"similar_text": True} if similar_text else {}),
                            **({"ignored_accounts": ignored} if ignore_path is not None else {})},
             "signals": signals,
             "warnings": warnings + detect_warnings,

@@ -11,7 +11,8 @@ def test_result_document(tmp_path):
     json.dumps(result)
     assert result["source"] == {"comments_file": "comments.csv", "profiles_file": "profiles.csv",
                                 "comments": 5773, "accounts": 256, "synthetic": True}
-    assert result["parameters"] == {"min_words": 5, "min_shared": 2, "alpha": 0.01, "min_size": 3, "min_confidence": 0.2}
+    assert result["parameters"] == {"min_words": 5, "min_shared": 2, "long_words": 10, "alpha": 0.01, "min_size": 3,
+                                    "min_confidence": 0.2}
     assert [c["size"] for c in result["clusters"]] == [3, 8, 5]            # feeds at 1.0, then the swarms
     assert result["metrics"]["at_min_confidence"]["precision"] == 0.8125
     swarm = result["clusters"][1]

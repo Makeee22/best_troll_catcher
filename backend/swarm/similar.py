@@ -74,7 +74,7 @@ def add_items(con, model=MODEL, threshold=THRESHOLD, max_texts=MAX_TEXTS, max_pa
                     [[m[0] for m in members], [m[1] for m in members]])
         # Word-for-word copies in a group are counted under `text` as well: recall matters more than counting once.
         con.execute("""
-            insert into item
+            insert into item (username, kind, key, value, first_seen, last_seen)
             select i.username, 'similar_text', g.gkey, first(i.value order by i.first_seen nulls last, i.value),
                    min(i.first_seen), max(i.last_seen)
             from item i join text_group g on i.key = g.key

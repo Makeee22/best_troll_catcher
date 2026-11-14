@@ -9,6 +9,8 @@ MIN_WORDS = 5
 MIN_SHARED = 2
 # False discovery rate of the chance test (Benjamini-Hochberg).
 ALPHA = 0.01
+# A text of at least this many words links two accounts alone: a long text is not written twice by accident; shorter ones still need two.
+LONG_WORDS = 10
 # Smallest group of accounts that is a cluster.
 MIN_SIZE = 3
 # Most account-pair rows built; above it the most widely shared items are left out.
@@ -31,11 +33,12 @@ with c as (select comment_id, username, timestamp as ts, text, links, parent_id,
 t as (select *, __WORDS__ as words
       from c where repost_of is null),
 raw as (
-  select username, 'repost' as kind, hash(repost_of) as key, repost_of as value, ts from c where repost_of is not null
+  select username, 'repost' as kind, hash(repost_of) as key, repost_of as value, ts, null::BIGINT as n_words
+    from c where repost_of is not null
   union all
-  select username, 'text', hash(array_to_string(words, ' ')), text, ts from t where len(words) >= __MIN_WORDS__
+  select username, 'text', hash(array_to_string(words, ' ')), text, ts, len(words) from t where len(words) >= __MIN_WORDS__
   union all
-  select username, 'link', hash(__LINK_KEY__), url, ts
+  select username, 'link', hash(__LINK_KEY__), url, ts, null
     from (select username, ts, url,
                  regexp_extract(a, '^[^/?]*') as host, regexp_extract(a, '^[^/?]*([^?]*)', 1) as path,
                  -- query without tracking parameters; the '&' in front makes every parameter start the same way
@@ -45,8 +48,9 @@ raw as (
                 from (select username, ts, rtrim(unnest(regexp_extract_all(coalesce(text, '') || ' ' || coalesce(links, ''), '(?i)https?://\S+')), '.,)') as url
                       from c where repost_of is null)))
   union all
-  select username, 'reply', hash(parent_id), parent_id, ts from c where parent_id is not null and repost_of is null)
-select username, kind, key, first(value order by ts nulls last, value) as value, min(ts) as first_seen, max(ts) as last_seen
+  select username, 'reply', hash(parent_id), parent_id, ts, null from c where parent_id is not null and repost_of is null)
+select username, kind, key, first(value order by ts nulls last, value) as value, min(ts) as first_seen, max(ts) as last_seen,
+       max(n_words) as words
 from raw group by username, kind, key
 """
 
@@ -104,7 +108,8 @@ def _clusters(links, min_size):
     return [sorted(g) for g in groups.values() if len(g) >= min_size]
 
 
-def detect(con, *, min_shared=MIN_SHARED, alpha=ALPHA, min_size=MIN_SIZE, pair_budget=PAIR_BUDGET, similar_text=False):
+def detect(con, *, min_shared=MIN_SHARED, alpha=ALPHA, min_size=MIN_SIZE, pair_budget=PAIR_BUDGET, similar_text=False,
+           long_words=LONG_WORDS):
     warnings = []
     skipped = _skipped(con)
     fill = lambda sql: sql.replace("__WORDS__", _WORDS).replace("__LINK_KEY__", _LINK_KEY).replace("__MIN_WORDS__", str(int(MIN_WORDS)))
@@ -135,20 +140,20 @@ def detect(con, *, min_shared=MIN_SHARED, alpha=ALPHA, min_size=MIN_SIZE, pair_b
 
     con.execute("""
         create or replace table pair as
-        with shared as (select i.username, i.kind, i.key from item i join df d using (kind, key)
+        with shared as (select i.username, i.kind, i.key, i.words from item i join df d using (kind, key)
                         where d.df between 2 and ?),
-        p as (select a.username as u1, b.username as u2, a.kind, count(*) as c
+        p as (select a.username as u1, b.username as u2, a.kind, count(*) as c, count(*) filter (where a.words >= ?) as long
               from shared a join shared b on a.kind = b.kind and a.key = b.key and a.username < b.username
               group by all),
         e as (select p.*, n1.n * n2.n * s.s as expected
               from p join n n1 on n1.username = p.u1 and n1.kind = p.kind
                      join n n2 on n2.username = p.u2 and n2.kind = p.kind
                      join s on s.kind = p.kind)
-        select u1, u2, kind, c,
+        select u1, u2, kind, c, long,
                case when expected < c
                     then c * ln(expected) - expected - lgamma(c + 1) - ln(1 - expected / (c + 1))
                     else 0 end as logp
-        from e""", [max_sharers])
+        from e""", [max_sharers, long_words or None])
     m = con.execute("select count(*) from pair").fetchall()[0][0]
     cut = None
     if m:
@@ -157,7 +162,7 @@ def detect(con, *, min_shared=MIN_SHARED, alpha=ALPHA, min_size=MIN_SIZE, pair_b
             where logp <= ln(?) + ln(k) - ln(?)""", [alpha, m]).fetchall()[0][0]
     con.execute("create or replace table link (u1 VARCHAR, u2 VARCHAR, kind VARCHAR, shared BIGINT)")
     if cut is not None:
-        con.execute("insert into link select u1, u2, kind, c from pair where c >= ? and logp <= ?", [min_shared, cut])
+        con.execute("insert into link select u1, u2, kind, c from pair where (c >= ? or long >= 1) and logp <= ?", [min_shared, cut])
 
     groups = _clusters(con.execute("select u1, u2 from link").fetchall(), min_size)
     con.execute("create or replace table member (username VARCHAR, cluster VARCHAR, copied_share DOUBLE)")
