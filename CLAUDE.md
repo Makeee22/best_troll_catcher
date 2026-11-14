@@ -25,7 +25,6 @@ Hard requirements:
 
 | When | What |
 |---|---|
-| Sat 14.11 23:00 | Feature freeze: bug fixes only after this |
 | Sun 15.11 08:30 | Submission set to FINAL on the Junction Platform |
 | Sun 15.11 09:30 | No more deploys |
 | Sun 15.11 10:00 | Hard deadline; late submissions are not accepted |

@@ -57,9 +57,7 @@ False positives we design for, each with a test:
 | Sat 13:45–18:00 | **Core MVP done** | Tasks 5–7: command line, numbers on the real dataset recorded below, API on the live URL showing the synthetic sample. |
 | Sat 18:00–18:30 | Dinner + **checkpoint** | Scope of the website cut to what can be finished. |
 | Sat 18:30–23:00 | **Website (part 2)** | Run the core from the site. Then, in this order, as far as time allows: collect comments from a link (Context.dev), explain a cluster (AI Router), upload a local result. Dashboard usable. |
-| Sat 23:00 | **Feature freeze** | Bug fixes only. |
-| Sat 23:00–02:00 | **Package** | Deck draft, video script, README, demo script. |
-| Sun 02:00–06:00 | Sleep | |
+| Sat 23:00–06:30 | **Build and package** (all-nighter) | Features continue until the team decides to stop. Deck draft, video script, README, demo script. |
 | Sun 06:30–08:30 | **Record and finish** | Video under 2:00 and public. Deck as PDF. Live URL tested from a phone on mobile data. |
 | Sun 08:30 | **Submit as FINAL** | For both challenges. Editable until 10:00. |
 | Sun 09:30 | **Hands off** | No more deploys. |

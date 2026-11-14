@@ -817,7 +817,7 @@ def test_analyses_a_comments_file(monkeypatch, tmp_path):
 
 ### Task 8 (optional, cut first): similar-text signal
 
-Do this only when tasks 1–7 are merged and time remains before the feature freeze.
+Do this only when tasks 1–7 are merged.
 
 **Files:**
 - Create: `backend/swarm/similar.py`, `backend/test_similar.py`
