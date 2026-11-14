@@ -235,12 +235,19 @@ def detect(con, *, min_shared=MIN_SHARED, alpha=ALPHA, min_size=MIN_SIZE, pair_b
         con.execute("create or replace temp table member_cluster as "
                     "select unnest(?::VARCHAR[]) as username, unnest(?::VARCHAR[]) as cluster",
                     [[u for g in groups for u in g], [i for g, i in zip(groups, ids) for _ in g]])
+        # Copied share over the kinds the cluster's links are made of: a botnet that reposts its own members and also
+        # writes text nobody copies (Fox8-23: confidence 0.24 over all kinds, 0.60 over reposts) is not diluted by it.
         con.execute("""
             insert into member
-            with mi as (select mc.cluster, i.username, i.kind, i.key from item i join member_cluster mc using (username)),
-            cnt as (select cluster, kind, key, count(*) as k from mi group by all)
-            select mi.username, mi.cluster, avg((cnt.k > 1)::int) from mi join cnt using (cluster, kind, key)
-            group by mi.cluster, mi.username""")
+            with lk as (select distinct a.cluster, l.kind from link l
+                        join member_cluster a on a.username = l.u1 join member_cluster b on b.username = l.u2
+                        where a.cluster = b.cluster),
+            mi as (select mc.cluster, i.username, i.kind, i.key from item i join member_cluster mc using (username)
+                   join lk on lk.cluster = mc.cluster and lk.kind = i.kind),
+            cnt as (select cluster, kind, key, count(*) as k from mi group by all),
+            share as (select mi.username, mi.cluster, avg((cnt.k > 1)::int) as s from mi join cnt using (cluster, kind, key)
+                      group by mi.cluster, mi.username)
+            select mc.username, mc.cluster, coalesce(share.s, 0) from member_cluster mc left join share using (username, cluster)""")
         con.execute("insert into cluster select cluster, count(*), round(avg(copied_share), 9) from member group by cluster")
 
     signals = {}

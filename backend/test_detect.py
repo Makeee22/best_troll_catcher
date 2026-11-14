@@ -228,3 +228,13 @@ def test_created_together_can_be_switched_off(tmp_path, make_csv):
     load(con, make_csv(tmp_path, "c.csv", rows), make_csv(tmp_path, "p.csv", [{"username": u, "created_at": t} for u, t in created.items()]))
     signals, _ = detect(con, created_days=0)
     assert clusters(con) == [] and signals["created_together"]["status"] == "skipped"
+
+
+def test_confidence_counts_only_the_kinds_that_link_the_cluster(tmp_path, make_csv):
+    # Fox8-23's shape: members repost each other and write their own text that nobody copies; the text must not dilute
+    rows = [{"username": u, "repost_of": f"post{i}"} for u in "abc" for i in range(6)]
+    rows += unique("a", 30) + unique("b", 30) + unique("c", 30)
+    rows += [{"username": f"bg{k}", "repost_of": f"other{k}_{i}"} for k in range(40) for i in range(6)] + background(40, 10)
+    con, _, _ = run(tmp_path, make_csv, rows)
+    assert con.execute("select size, confidence from cluster").fetchall() == [(3, 1.0)]   # 6 of 36 posts over all kinds
+    assert con.execute("select count(*) from member where copied_share = 1.0").fetchall()[0][0] == 3

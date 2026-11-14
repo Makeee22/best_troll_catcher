@@ -123,7 +123,7 @@ Without `username` there are no accounts to group. Without any of the four conte
 5. **Test against chance.** If accounts picked items at random, with popular items picked more often, a pair with `n1` and `n2` items would share about `n1 × n2 × S` of them, where `S` is the chance that two different posts of that signal are the same item (counted over pairs of different posts, so a post never matches itself), which measures how concentrated the signal is on popular items. The test asks how likely the real count is under that assumption. A viral post raises `S`, so sharing it proves little. The cut-off for "unlikely enough" is set from all tested pairs at once (Benjamini-Hochberg, false discovery rate 1%), so it adapts to the size of the dataset.
 6. **Link** a pair when it passes the test and shares at least 2 items in one signal, or one text of at least 10 words. One shared repost, link, reply or short text never links anyone. (The long-text rule was added on 14.11 after measuring it: see `PLAN.md`, Results.)
 7. **Group** linked accounts. A group of at least 3 accounts is a cluster.
-8. **Confidence** of a cluster: for each member, the share of its items that another member also has; then the average over members. A cluster is reported when its confidence is at least 0.2.
+8. **Confidence** of a cluster: for each member, the share of its items that another member also has, counted only over the kinds the cluster's links are made of; then the average over members. (Over all kinds, Fox8-23's ChatGPT-written botnet scored 0.24: its own text, which nobody copies, diluted the reposts that link it.) A cluster is reported when its confidence is at least 0.2.
 
 Exact formulas are in `docs/core-plan.md`, task 3.
 
