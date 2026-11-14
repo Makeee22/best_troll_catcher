@@ -122,9 +122,10 @@ Each role edits only its own block.
 - For TheSnowman99: the thresholds to tune are the four constants at the top of `backend/swarm/detect.py`.
 
 ### Front end + infrastructure
-- Done:
-- Doing:
-- Blocked:
+- Done (on branch `makeee22/frontend`, not merged): dashboard in `frontend/site/` (CSV upload, flagged accounts by swarm, swarm evidence, metrics, "synthetic data" badge); mock API in `frontend/mock/` that reuses `backend/swarm/detect.py`; `docker-compose.yml` (nginx `web` + `api`); `deploy/README.md`.
+- B4 choice: **static page**, no build step, served by nginx, which also proxies `/api/` to the API container. The table above still says OPEN: for the keeper to mark.
+- Doing: first deploy to the VPS. The page and the mock are tested locally without Docker; the Docker images and compose file are **not built or tested yet**.
+- Blocked: nothing hard. For Arde1001: the page needs a new endpoint, `POST /api/analyze` (CSV upload); the proposal is at the end of `frontend/README.md`. Until the backend has it, the live site runs the mock; switching is one command (`deploy/README.md`).
 
 ### Presentation + documentation
 - Done:
