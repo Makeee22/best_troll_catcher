@@ -105,7 +105,8 @@ def merge(rows, profiles):
         lone = len(cands) == 1 and pending[_key(r)] == 1
         twin = next((t for t in cands if _same_comment(r, t, lone)), None)
         if twin:
-            alias[r["comment_id"]] = twin["comment_id"]
+            if r["comment_id"]:  # an alias under "" would rewrite every root comment's empty parent_id
+                alias[r["comment_id"]] = twin["comment_id"]
         else:
             comments.append(r)
     for r in comments:

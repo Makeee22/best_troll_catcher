@@ -135,3 +135,11 @@ def test_integer_ids_and_names_do_not_crash():
         {"id": 1, "text": "one", "parent_id": 0}, {"id": 2, "text": "two", "parent_id": 1}]}]}
     comments, _, _ = convert(bundle)
     assert [(c["comment_id"], c["username"], c["parent_id"]) for c in comments] == [("1", "42", ""), ("2", "42", "1")]
+
+
+def test_history_without_id_never_registers_an_alias():
+    thread = row("c1", "alice", "hello", "2026-11-14T10:00:00Z", parent="")
+    root = row("c2", "bob", "other", "2026-11-14T10:01:00Z", parent="")
+    copy = row("", "alice", "hello", "2026-11-14T10:00:10Z", source="history")
+    comments, _, _ = merge([thread, root, copy], [])
+    assert [c["parent_id"] for c in comments] == ["", ""]
