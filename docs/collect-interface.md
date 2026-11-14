@@ -25,6 +25,43 @@ Given a raw bundle, produce `comments.csv` and, when there is profile data, `pro
 
 `frontend/api/reddit_html.py` (a Reddit thread page saved from the browser → comments) and `contextdev.to_rows()` (Reddit histories → rows) were written before this split. **They belong in the converter half:** the backend owner may move or rewrite them; the front end will then call the backend's converter instead.
 
+### How to call the converter (for the front end)
+
+On `main` since 14.11 evening, for Reddit. The review parsers and schema.org follow. The API image already copies `backend/swarm`, so `from swarm.convert import …` works there.
+
+```python
+from swarm.convert import convert, write, ConvertError
+
+# 1. The saved thread page → its comments (cleaned), to know whose histories to fetch.
+thread = {"url": url, "site": "reddit", "pages": [{"url": url, "role": "thread", "html": page_text}]}
+comments, _, notes = convert(thread)            # raises ConvertError when the page has no comments
+authors = list(dict.fromkeys(c["username"] for c in comments))   # anonymous and [deleted] are already gone
+
+# 2. Each history as Context.dev returned it (contextdev.reddit_history keeps the comments unchanged):
+for h in histories:
+    if h["status"] != "failed":
+        thread["pages"].append({"url": f"https://www.reddit.com/user/{h['username']}", "role": "profile",
+                                "parsed": {"type": "reddit-user", "success": True,
+                                           "data": {"user": {"username": h["username"], "created_at": h.get("created_at")},
+                                                    "comments": h["comments"]}}})
+
+# 3. Write the two files and analyse them.
+comments_path, profiles_path, warnings = write(thread, work_dir)   # profiles_path is None when there are no profiles
+result = analyze(comments_path, profiles_path)
+result["warnings"] = warnings + result["warnings"]                 # "read 188 of 322 comments…", "left out 12 …"
+```
+
+- **What it replaces in `jobs.py`:** `reddit_html.parse_thread()` (step 1) and `contextdev.to_rows()` + `_write_csv()` (steps 2–3).
+- **Bug in `frontend/api/reddit_html.py` (live on the site now), for Makeee22:**
+  - **What:** its parser counts open tags inside a comment's text and closes the text on the matching end tag. A void tag such as `<br>` has no end tag, so the count never reaches zero. The parser then stays "inside" that comment and swallows every later `<shreddit-comment>` on the page.
+  - **Effect, measured on a real saved thread on 14.11:** 47 of the 188 comments on the page were read, so 141 commenters and their histories never reached the analysis, and one comment's text came out empty. The site's "read N of M comments" line undercounts the same way.
+  - **Fix:** switch to the converter (below), which reads all 188, or skip void tags (`br`, `img`, `hr`, `input`, `wbr`) in `handle_starttag`. The backend left the file unchanged because it is in `frontend/`.
+- **Why switch:** besides the bug, the converter drops anonymous and placeholder authors, strips quoted parent text from replies, and keeps a comment once when it appears in both the thread and a history. On that page it keeps 170 of the 188 comments; the rest are deleted or empty.
+- **The same comment in the thread and in a history** is kept once. Replies that point at it keep working, even if the two ids differed.
+- **`page_text`** is the page as a string: `raw.decode("utf-8", errors="replace")`.
+- **Errors:** `ConvertError` (a `ValueError`) has a message to show the user as it is.
+- **Command line:** `python -m swarm.convert page.html OUT_DIR` or `python -m swarm.convert bundle.json OUT_DIR`. Warnings go to stderr, and the exit code is 2 on an error.
+
 ### Converter design
 
 Approved by the backend owner on 14.11 at about 18:00. It gets built after the website works end to end. It covers approaches A (site adapters) and B (schema.org markup); C (a generic repeated-block fallback) is an extra if time is left.
