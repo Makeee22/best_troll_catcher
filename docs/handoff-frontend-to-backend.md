@@ -93,6 +93,6 @@ From Arde1001 after reading `fd55883` against the collector's interface. The swi
 
 **S4. Reddit coverage line.** A Reddit link reads what the rendered page shows before "load more" (live check: 23 of 322). The warning now says "the rest were not loaded on the page, e.g. behind Reddit's 'load more'". Proposal: next to it, point to the "Analyse a saved Reddit page" card for more comments.
 
-**S5. No change to the history length yet.** On Test A, recall jumps by whole botnets as the history grows (0.91 at 10 comments, 0.24 at 15, 0.49 at 50, 7-day window), because a large botnet's own copies make its items look common (open item Q2/Q3). So keep 25 (Reddit) and 30 (Bluesky) until that is fixed; 10 would save credits, but it is not better detection.
+**S5. No change to the history length yet.** On Test A, recall jumps up and down by whole botnets as the history grows, instead of changing smoothly, because a large botnet's own copies make its items look common (open item Q2/Q3). So keep 25 (Reddit) and 30 (Bluesky) until that is fixed; 10 would save credits, but it is not better detection.
 
 Already done on the site, for the record: member flags shown and used in the explanation, `signals.created_together` labelled as adding to other links, the similar-text model in the image.
