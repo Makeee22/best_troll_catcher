@@ -10,12 +10,12 @@ import re
 import tempfile
 from datetime import datetime, timezone
 
-from . import bluesky, hackernews, reddit
+from . import bluesky, hackernews, reddit, reviews
 from .contextdev import CollectError, ContextDev, ContextDevError
 
 __all__ = ["collect", "run", "analyse", "CollectError", "ContextDev", "ContextDevError"]
 
-SITES = [("bluesky", bluesky), ("hackernews", hackernews), ("reddit", reddit)]
+SITES = [("bluesky", bluesky), ("hackernews", hackernews), ("reddit", reddit), ("reviews", reviews)]
 
 
 def _normalise(url):
@@ -35,7 +35,7 @@ def collect(url, *, history=25, max_participants=150, on_progress=None, client=N
     before = client.credits_used
     got = site[1].collect(url, client, history, max_participants, on_progress)
     bundle = {
-        "url": url, "site": site[0], "collected_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "url": url, "site": got.get("site") or site[0], "collected_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
         "pages": got["pages"],
         "coverage": {"comments_found": got["found"], "comments_expected": got["expected"], "notes": got["notes"]},
         "credits_used": client.credits_used - before,

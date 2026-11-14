@@ -380,3 +380,54 @@ def test_reddit_link_forms():
     assert reddit.matches("https://old.reddit.com/r/test/comments/post1/")
     assert not reddit.matches("https://www.reddit.com/r/test/")
     assert not reddit.matches("https://example.test/r/x/comments/abc")
+
+
+# --- Context.dev review and comment parsers --------------------------------------------------
+
+REVIEW_LINKS = {
+    "https://www.google.com/maps/place/Some+Place/@60.1,24.9,17z": ("google-maps-reviews", 200),
+    "https://apps.apple.com/us/app/some-app/id1000000000": ("app-store-reviews", None),
+    "https://play.google.com/store/apps/details?id=com.example.app": ("google-play-reviews", None),
+    "https://www.tripadvisor.com/Attraction_Review-g1-d2-Reviews-Some_Place-City.html": ("tripadvisor-reviews", None),
+    "https://www.yelp.com/biz/some-place-city": ("yelp-reviews", None),
+    "https://www.g2.com/products/some-product/reviews": ("g2-reviews", None),
+    "https://www.tiktok.com/@someone/video/7000000000000000000": ("tiktok-comments", None),
+}
+
+
+@pytest.mark.parametrize("link,expected", REVIEW_LINKS.items())
+def test_review_site_calls_its_parser_and_keeps_parsed_unchanged(link, expected):
+    parser, limit = expected
+    data = {"reviews": [{"author": "A Person", "text": "synthetic review"}] * 3, "location": {"review_count": 10}}
+    parsed = {"requested": True, "success": True, "data": data, "type": parser}
+    client = FakeClient(parsed=parsed)
+    bundle = collect(link, client=client)
+    assert client.calls == [("parse", link, parser, limit)]
+    assert bundle["site"] == parser and bundle["pages"] == [{"url": link, "role": "thread", "parsed": parsed}]
+    assert bundle["pages"][0]["parsed"] is parsed
+    assert (bundle["coverage"]["comments_found"], bundle["coverage"]["comments_expected"]) == (3, 10)
+    assert any("3 of 10" in n for n in bundle["coverage"]["notes"])
+    assert bundle["credits_used"] == 1
+
+
+def test_review_parser_failure_is_a_clear_error():
+    failed = {"type": "yelp-reviews", "success": False, "error_code": "BLOCKED"}
+    with pytest.raises(CollectError, match="BLOCKED"):
+        collect("https://www.yelp.com/biz/some-place-city", client=FakeClient(parsed=failed))
+
+
+def test_review_bundle_converts_and_runs():
+    parsed = {"success": True, "type": "google-maps-reviews", "data": {"featureId": "f1", "reviews": [
+        {"user": {"name": "Alice Example", "link": "https://www.google.com/maps/contrib/111"},
+         "snippet": "synthetic words about the place", "isoDate": "2026-11-01T10:00:00Z"},
+        {"user": {"name": "Bob Example", "link": "https://www.google.com/maps/contrib/222"},
+         "snippet": "other synthetic words here", "isoDate": "2026-11-02T10:00:00Z"}]}}
+    link = "https://www.google.com/maps/place/Some+Place/@60.1,24.9,17z"
+    comments, _, _ = convert(collect(link, client=FakeClient(parsed=parsed)))
+    assert len(comments) == 2
+
+
+def test_other_links_on_review_sites_are_unsupported():
+    for link in ("https://www.yelp.com/", "https://www.g2.com/categories/crm", "https://apps.apple.com.example.test/app/x"):
+        with pytest.raises(CollectError, match="not supported yet"):
+            collect(link, client=FakeClient())
