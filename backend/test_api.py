@@ -34,6 +34,15 @@ def test_serves_a_result_file(monkeypatch, tmp_path):
     assert len(client(monkeypatch, RESULT_FILE=str(path)).get("/api/swarms").json()["swarms"]) == 1
 
 
+def test_serves_a_result_file_written_before_declared_automation(monkeypatch, tmp_path):
+    result = analyze(*write(str(tmp_path)), min_confidence=0.5)
+    for c in result["clusters"]:
+        del c["declared_automation"]
+    path = tmp_path / "result.json"
+    path.write_text(json.dumps(result), encoding="utf-8")
+    assert client(monkeypatch, RESULT_FILE=str(path)).get("/api/swarms").json()["swarms"][0]["declared_automation"] is None
+
+
 def test_analyses_a_comments_file(monkeypatch, tmp_path):
     comments, _ = write(str(tmp_path))
     body = client(monkeypatch, COMMENTS_FILE=comments).get("/api/metrics").json()

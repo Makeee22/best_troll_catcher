@@ -56,7 +56,7 @@ def list_swarms():
     swarms = [
         {"id": c["id"], "size": c["size"], "confidence": c["confidence"], "edge_count": c["edge_count"],
          "first_seen": c["first_seen"], "last_seen": c["last_seen"],
-         "sample": c["top_items"][0] if c["top_items"] else None, "declared_automation": c["declared_automation"]}
+         "sample": c["top_items"][0] if c["top_items"] else None, "declared_automation": c.get("declared_automation")}
         for c in result["clusters"]
     ]
     return {"source": result["source"], "parameters": result["parameters"], "signals": result["signals"],
