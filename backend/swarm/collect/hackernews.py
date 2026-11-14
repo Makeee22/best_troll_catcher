@@ -1,4 +1,4 @@
-"""Hacker News: the whole comment tree (Algolia items/ID) and each commenter's recent comments (Algolia search).
+"""Hacker News: the whole comment tree (Algolia items/ID) and each commenter's recent comments (Algolia search_by_date).
 
 Public API, no key and no Context.dev credits. The responses go into the bundle unchanged as `json` pages.
 """
@@ -9,6 +9,7 @@ from urllib.parse import quote
 from .contextdev import CollectError
 
 API = "https://hn.algolia.com/api/v1/"
+SEARCH = "search_by_date"   # newest first; plain "search" ranks by relevance and missed the newest comment for 2 of 6 authors
 ITEM_URL = re.compile(r"^https?://(?:www\.)?news\.ycombinator\.com/item\?(?:[^#]*&)?id=(\d+)(?:[&#].*)?$", re.I)
 
 
@@ -46,7 +47,7 @@ def collect(url, client, history, max_participants, on_progress):
     pages = [{"url": item_url, "role": "thread", "json": item}]
 
     def one(name):
-        search = f"{API}search?tags=comment,author_{quote(name, safe='')}&hitsPerPage={int(history)}"
+        search = f"{API}{SEARCH}?tags=comment,author_{quote(name, safe='')}&hitsPerPage={int(history)}"
         try:
             return search, client.direct_json(search)
         except Exception:            # one account failing must not stop the rest

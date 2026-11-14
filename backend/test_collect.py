@@ -247,7 +247,7 @@ def hn_routes(fail=()):
             return HN_ITEM
         if u.path == "/api/v1/items/404":
             return None
-        if u.path.startswith("/api/v1/search"):
+        if u.path == "/api/v1/search_by_date":
             tags = parse_qs(u.query)["tags"][0]
             assert tags.startswith("comment,author_") and parse_qs(u.query)["hitsPerPage"] == ["5"]
             name = tags.split("author_")[1]
