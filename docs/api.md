@@ -40,7 +40,7 @@ Shortened: the example shows two of the three swarms and the `warnings` list is 
 {
   "source": {"comments_file": "comments.csv", "profiles_file": "profiles.csv",
              "comments": 5773, "accounts": 256, "synthetic": true},
-  "parameters": {"min_words": 5, "min_shared": 2, "alpha": 0.01, "min_size": 3, "min_confidence": 0.2},
+  "parameters": {"min_words": 5, "min_shared": 2, "long_words": 10, "alpha": 0.01, "min_size": 3, "min_confidence": 0.2},
   "signals": {
     "text":   {"status": "used", "reason": null, "items": 5483, "links": 41},
     "link":   {"status": "used", "reason": null, "items": 60, "links": 0},

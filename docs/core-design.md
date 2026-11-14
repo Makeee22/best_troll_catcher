@@ -121,7 +121,7 @@ Without `username` there are no accounts to group. Without any of the four conte
 3. **Count** how many accounts have each item, and how many items each account has, per signal.
 4. **Pair** accounts that share an item. For each pair and signal: the number of different items they share.
 5. **Test against chance.** If accounts picked items at random, with popular items picked more often, a pair with `n1` and `n2` items would share about `n1 × n2 × S` of them, where `S` measures how concentrated the signal is on popular items. The test asks how likely the real count is under that assumption. A viral post raises `S`, so sharing it proves little. The cut-off for "unlikely enough" is set from all tested pairs at once (Benjamini-Hochberg, false discovery rate 1%), so it adapts to the size of the dataset.
-6. **Link** a pair when it shares at least 2 items in one signal and passes the test. One shared item never links anyone.
+6. **Link** a pair when it passes the test and shares at least 2 items in one signal, or one text of at least 10 words. One shared repost, link, reply or short text never links anyone. (The long-text rule was added on 14.11 after measuring it: see `PLAN.md`, Results.)
 7. **Group** linked accounts. A group of at least 3 accounts is a cluster.
 8. **Confidence** of a cluster: for each member, the share of its items that another member also has; then the average over members. A cluster is reported when its confidence is at least 0.2.
 
@@ -133,6 +133,7 @@ Exact formulas are in `docs/core-plan.md`, task 3.
 |---|---|---|
 | `MIN_WORDS` | 5 | Shorter texts ("good morning") are reused innocently. |
 | `MIN_SHARED` | 2 | Fewest shared items in one signal for a link. |
+| `LONG_WORDS` | 10 | One shared text of at least this many words is enough for a link, if it passes the chance test. Fixed at twice `MIN_WORDS` before it was measured. |
 | `ALPHA` | 0.01 | False discovery rate of the chance test. |
 | `MIN_SIZE` | 3 | Smallest cluster. |
 | `MIN_CONFIDENCE` | 0.2 | Lowest confidence that is reported. |
@@ -150,7 +151,7 @@ One JSON document, the same from the command line and the API. It is self-contai
 {
   "source": {"comments_file": "comments.csv", "profiles_file": "profiles.csv",
              "comments": 5773, "accounts": 256, "synthetic": true},
-  "parameters": {"min_words": 5, "min_shared": 2, "alpha": 0.01, "min_size": 3, "min_confidence": 0.2},
+  "parameters": {"min_words": 5, "min_shared": 2, "long_words": 10, "alpha": 0.01, "min_size": 3, "min_confidence": 0.2},
   "signals": {
     "text":   {"status": "used", "items": 5448, "links": 41},
     "repost": {"status": "skipped", "reason": "column repost_of is missing", "items": 0, "links": 0}
