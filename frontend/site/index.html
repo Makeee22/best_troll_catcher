@@ -17,6 +17,24 @@
 </header>
 
 <main>
+  <section class="card" aria-labelledby="url-h">
+    <h2 id="url-h">Analyse a discussion from a link</h2>
+    <form id="url-form" class="link-form" novalidate>
+      <label for="url-input"><strong>Link to a post</strong> <span class="muted">(Bluesky works now)</span></label>
+      <div class="link-row">
+        <input id="url-input" type="url" inputmode="url" autocomplete="off" spellcheck="false"
+               placeholder="https://bsky.app/profile/name/post/…">
+        <button id="url-start" type="submit" class="primary">Analyse the discussion</button>
+      </div>
+    </form>
+    <div id="url-status" class="muted progress-line" role="status"></div>
+    <div id="url-error" class="error" role="alert" hidden></div>
+    <p class="muted">Paste the link of a <strong>Bluesky</strong> post. We read the whole thread under it and every participant's
+      newest public posts, replies and reposts through <strong>Context.dev</strong>, then look for accounts that act together.
+      Only public data, no login. The result gets its own private link and is deleted after 3 hours. A swarm is a lead to check, not proof.
+      Reddit needs a saved page (next card); other sites are not supported yet.</p>
+  </section>
+
   <section class="card" aria-labelledby="reddit-h">
     <h2 id="reddit-h">Analyse a Reddit thread</h2>
     <ol class="steps">
@@ -32,6 +50,7 @@
       <button id="reddit-start" type="submit" class="primary">Analyse the thread</button>
     </form>
     <div id="reddit-status" class="muted progress-line" role="status"></div>
+    <div id="reddit-error" class="error" role="alert" hidden></div>
     <p class="muted">We read the commenters from the page, fetch each one's newest public Reddit comments with
       <strong>Context.dev</strong>, and look for accounts that act together. The result gets its own private link and is deleted after 3 hours.
       Why save the page instead of pasting a link? Reddit shows the comments only to a browser; the page you save has them.</p>

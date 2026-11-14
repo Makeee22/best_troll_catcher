@@ -53,6 +53,10 @@ label.single { display: flex; flex-direction: column; gap: 2px; border: 1px soli
 .progress-line { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; min-height: 1.5em; margin: 8px 0; }
 .progress-line progress { flex: 1 1 160px; max-width: 320px; }
 .job-banner { border-left: 4px solid var(--accent); }
+.link-form { display: flex; flex-direction: column; gap: 6px; }
+.link-row { display: flex; flex-wrap: wrap; gap: 8px; align-items: stretch; }
+.link-row input { flex: 1 1 260px; min-width: 0; font: inherit; padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--card); color: inherit; }
+.link-row button.primary { margin: 0; }
 .warnings { margin: 10px 0; }
 .warnings ul { margin: 6px 0; padding-left: 20px; font-size: .9rem; overflow-wrap: anywhere; }
 .error { background: var(--bad-bg); color: var(--bad-text); padding: 10px 12px; border-radius: 6px; margin: 8px 0; overflow-wrap: anywhere; }
