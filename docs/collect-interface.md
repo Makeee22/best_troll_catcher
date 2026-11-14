@@ -27,6 +27,12 @@ result, bundle = run(url, similar_text=True, history=25)    # collect -> swarm.c
 - Errors are `CollectError` (a `ValueError`) with a message for the user: unsupported site, post not found or not public, no key for a site that needs one, credits ran out, a site that answers with something other than JSON. `collect()` and `run()` raise nothing else (`run()` turns a thread without comments or unusable data into a `CollectError`); `analyse()` called on its own may also raise `ConvertError` or `InputError`. `history` is clamped to 1–100 and `max_participants` to at least 1. If the similar-text model cannot be loaded (no download yet, no network), `run()` and `analyse()` repeat the analysis without that signal and add a warning. The command line prints it as one `error: …` line with exit code 2.
 - Retry, timeout, 2 concurrent requests (`CONTEXT_DEV_WORKERS`) and the credit accounting are those of `frontend/api/contextdev.py`.
 
+**Switching the site (for Makeee22; on `main` since 14.11 evening, `bac6acd`):**
+1. `frontend/api/Dockerfile`: add `RUN python -m swarm.similar download` after `COPY backend/swarm swarm` (the ~512 MB multilingual model is fetched at build time, not on the first job; `model2vec` comes from `backend/requirements.txt`).
+2. `jobs.py`: for `POST /api/jobs/url`, call `run(url, history=…, on_progress=…)` (or `collect` → `convert` → `analyze` if the job needs the stages apart); `bundle["thread"]`, `bundle["credits_used"]` and `bundle["coverage"]` fill the job's `thread`, `histories_ok/failed` and `credits_used`. Show a `CollectError` message as it is. The job shape and endpoints stay as they are.
+3. The dashboard: show `accounts[].flagged` and `flagged_members` (linked but not flagged = not accused), and label `signals.created_together` as counting accounts already counted under their content kind (`docs/api.md`).
+4. Please rerun the Cresci subset and Test R on this core and put the numbers in `PLAN.md` Results.
+
 ```bash
 python -m swarm.collect URL OUT_DIR [--history N] [--max-participants N] [--no-similar-text]
 # writes bundle.json, comments.csv, profiles.csv (when there are profiles) and result.json; prints the core's summary
@@ -98,7 +104,7 @@ result["warnings"] = warnings + result["warnings"]                 # "read 188 o
 
 ### Converter design
 
-Approved by the backend owner on 14.11 at about 18:00; built the same evening (on `main`: Reddit, the Context.dev parsers, Bluesky, Hacker News; schema.org in review). It covers approaches A (site adapters) and B (schema.org markup); C (a generic repeated-block fallback) is an extra if time is left.
+Approved by the backend owner on 14.11 at about 18:00; built the same evening (on `main`: Reddit, the Context.dev parsers, Bluesky, Hacker News and schema.org). It covers approaches A (site adapters) and B (schema.org markup); C (a generic repeated-block fallback) is an extra if time is left.
 
 - **One module, `backend/swarm/convert.py`:** standard library only, with no network access.
   - `convert(bundle)` returns `(comment_rows, profile_rows, warnings)`.
