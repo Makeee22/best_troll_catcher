@@ -63,7 +63,9 @@ def _public(job):
             "source": r["source"], "parameters": r["parameters"], "signals": r["signals"], "warnings": r["warnings"],
             "swarms": [{"id": c["id"], "size": c["size"], "confidence": c["confidence"], "edge_count": c["edge_count"],
                         "first_seen": c["first_seen"], "last_seen": c["last_seen"],
-                        "sample": c["top_items"][0] if c["top_items"] else None} for c in r["clusters"]],
+                        "sample": c["top_items"][0] if c["top_items"] else None,
+                        "declared_automation": c.get("declared_automation")}   # same shape as backend/swarm/api.py
+                       for c in r["clusters"]],
         }
         out["metrics"] = {"source": r["source"], "metrics": r["metrics"]}
     return out

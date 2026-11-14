@@ -181,7 +181,8 @@ function renderSignals(signals, params) {
       h("tbody", null, rows))),
     h("p", { class: "muted" },
       "Settings: texts of at least " + params.min_words + " words; a pair needs at least " + params.min_shared +
-      " shared items and must pass the chance test (false discovery rate " + params.alpha + "); groups of at least " +
+      " shared items" + (params.long_words ? " (or one shared text of at least " + params.long_words + " words)" : "") +
+      " and must pass the chance test (false discovery rate " + params.alpha + "); groups of at least " +
       params.min_size + " accounts; swarms shown from confidence " + params.min_confidence + "." +
       (params.similar_text ? " The similar-text layer was on." : "")));
 }
@@ -273,7 +274,18 @@ function renderSwarmList(swarms) {
         h("strong", null, "Swarm " + (i + 1)),
         h("span", null, s.size + " accounts · " + fmtInt(s.edge_count) + " linked pairs"),
         confidenceBar(s.confidence)),
-      s.sample ? h("span", { class: "sample" }, kindName(s.sample.kind) + ", " + s.sample.accounts + " accounts: “" + s.sample.value + "”") : null)));
+      s.sample ? h("span", { class: "sample" }, kindName(s.sample.kind) + ", " + s.sample.accounts + " accounts: “" + s.sample.value + "”") : null,
+      s.declared_automation ? h("span", { class: "sample" }, automationNote(s.declared_automation)) : null)));
+}
+
+// docs/api.md: a description, never a verdict; the cluster is never hidden or greyed out for it.
+const automationNote = (a) => a.accounts + " of " + a.of + " accounts say they are automated (a feed, or a swarm posing as one): check the source.";
+
+function fmtGapSeconds(s) {
+  if (s < 60) return Math.round(s) + " s";
+  if (s < 7200) return Math.round(s / 60) + " min";
+  if (s < 172800) return Math.round(s / 3600) + " h";
+  return Math.round(s / 86400) + " days";
 }
 
 async function selectSwarm(id, scroll) {
@@ -309,6 +321,10 @@ function renderDetail(d) {
     created ? h("p", null, h("span", { class: "pill" },
       created.accounts + " of " + created.of + " accounts were created within one 30-day window"),
       h("span", { class: "muted" }, " Supporting evidence only; it does not change the confidence.")) : null,
+    d.copy_gap_seconds ? h("p", null, h("span", { class: "pill" },
+      "Copies follow each other after " + fmtGapSeconds(d.copy_gap_seconds.median) + " (median, over " + fmtInt(d.copy_gap_seconds.items) + " shared items)"),
+      h("span", { class: "muted" }, d.copy_gap_seconds.median < 60 ? " Within seconds: typical of automation or a scheduled campaign." : " Evidence only.")) : null,
+    d.declared_automation ? h("p", null, h("span", { class: "pill" }, automationNote(d.declared_automation))) : null,
     h("div", { class: "verdict pending" },
       "No plain-language explanation yet. Before acting, rule out the innocent look-alikes: breaking news, a real campaign, " +
       "an automated news feed, one viral post. The evidence below is what the decision rests on."),
