@@ -78,7 +78,7 @@ function showError(message) {
 
 function setBusy(text) {
   $("status").textContent = text || "";
-  for (const id of ["try-sample", "analyse", "comments-file", "profiles-file"]) $(id).disabled = !!text;
+  for (const id of ["analyse", "comments-file", "profiles-file"]) $(id).disabled = !!text;
 }
 
 // Handoff S6: no "weak" band. A pure botnet can sit at 0.24-0.28 (Test F, Fox8-23: its own generated text dilutes
@@ -162,7 +162,7 @@ async function showResult(listing, context) {
 
 // ---- colours per swarm (same colour on the map, in the list and in the graph) ----
 let swarmOrder = [];
-const PALETTE = ["#ff3fb4", "#29c8ff", "#9dea2e", "#a46bff", "#ff8a1f", "#16d9b0", "#ffd21f", "#6f8bff"];
+const PALETTE = ["#ff5cb8", "#4fb8ff", "#a77bff", "#3fd39a", "#ffb13d", "#ff7a7a", "#28c7c7", "#8c9bff"];
 const swarmColor = (id) => PALETTE[Math.max(0, swarmOrder.indexOf(id)) % PALETTE.length];
 
 // ---- the swarm map: every swarm as a cluster of dots (phyllotaxis), one dot per account ----
@@ -657,23 +657,25 @@ drop.addEventListener("drop", (e) => {
 // A file dropped beside the box must not make the browser navigate away from the page.
 for (const type of ["dragover", "drop"]) window.addEventListener(type, (e) => e.preventDefault());
 
-$("try-sample").addEventListener("click", async () => {
-  showError("");
-  setBusy("Fetching the synthetic sample…");
-  try {
-    const get = async (name) => {
-      const response = await fetch("samples/" + name);
-      if (!response.ok) throw new Error("The sample file " + name + " is missing on this server.");
-      return new File([await response.blob()], name, { type: "text/csv" });
-    };
-    const [comments, profiles] = await Promise.all([get("synthetic_comments.csv"), get("synthetic_profiles.csv")]);
-    setBusy("");
-    await analyse(comments, profiles);
-  } catch (e) {
-    setBusy("");
-    showError(e.message);
+// ---- input tabs: link / saved Reddit page / CSV ----
+const TABS = ["link", "reddit", "csv"];
+function selectTab(name, focus) {
+  for (const t of TABS) {
+    const on = t === name;
+    $("tab-" + t).setAttribute("aria-selected", String(on));
+    $("tab-" + t).tabIndex = on ? 0 : -1;
+    $("pane-" + t).hidden = !on;
   }
+  if (focus) $("tab-" + name).focus();
+}
+TABS.forEach((t, i) => {
+  $("tab-" + t).addEventListener("click", () => selectTab(t));
+  $("tab-" + t).addEventListener("keydown", (e) => {
+    const step = e.key === "ArrowRight" ? 1 : e.key === "ArrowLeft" ? -1 : 0;
+    if (step) { e.preventDefault(); selectTab(TABS[(i + step + TABS.length) % TABS.length], true); }
+  });
 });
+selectTab("link");
 
 // ---- Discussion analysis: a Bluesky link or a saved Reddit page (a background job with its own link) ----
 
@@ -745,7 +747,7 @@ function renderJobBanner(job) {
     h("p", { class: "note-plain" },
       "Private result: only people with this link can see it, and it is deleted after 3 hours. " +
       "A swarm here is a lead to check, not proof: real people who campaign together look the same as a bot network."),
-    h("p", null, h("button", { type: "button", onclick: () => { location.hash = ""; loadShared(); } }, "Back to the shared demo")));
+    h("p", null, h("button", { type: "button", onclick: () => { location.hash = ""; $("results").hidden = true; scrollTo(0, 0); } }, "New analysis")));
 }
 
 function setJobBusy(busy) {
@@ -837,5 +839,5 @@ function loadShared() {
 
 window.addEventListener("hashchange", () => { const id = jobIdFromHash(); if (id) { setJobBusy(true); pollJob(id); } });
 
-// On page load: a #job= link shows that analysis; otherwise the shared result (the synthetic sample after a restart).
-if (jobIdFromHash()) { setJobBusy(true); pollJob(jobIdFromHash()); } else { loadShared(); }
+// On page load: a #job= link shows that analysis; otherwise nothing until the user starts one (no demo data on open).
+if (jobIdFromHash()) { setJobBusy(true); pollJob(jobIdFromHash()); }

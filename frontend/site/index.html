@@ -7,84 +7,88 @@
   <title>Spot the swarm</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@400;500;600;700&family=Syncopate:wght@400;700&display=swap">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Mochiy+Pop+One&family=Zen+Maru+Gothic:wght@500;700;900&display=swap">
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
 <header class="top">
-  <div>
+  <div class="brand">
     <h1><span class="logo" aria-hidden="true"><i></i><i></i><i></i></span>Spot the swarm</h1>
-    <p class="muted tagline">Finds groups of accounts that share the same content far more often than chance would explain. Judged on what accounts share, never on a single post.</p>
+    <p class="tagline">Paste a discussion. See which accounts act as one, with the evidence, never a verdict.</p>
+  </div>
+  <div class="powered" aria-label="Built with">
+    <span class="powered-label">built with</span>
+    <a class="partner" href="https://www.hostinger.com/" title="Runs on Hostinger VPS; explanations through Hostinger AI Router"><img src="logos/hostinger.svg" alt="" width="18" height="18">Hostinger</a>
+    <a class="partner" href="https://www.context.dev/" title="Collects discussions and post histories"><img class="wide" src="logos/contextdev.svg" alt="Context.dev" height="15"></a>
+    <a class="partner" href="https://gemini.google.com/" title="Explains what the detector found (never decides)"><img src="logos/googlegemini.svg" alt="" width="18" height="18">Gemini</a>
   </div>
   <span id="synthetic-badge" class="badge-synthetic" hidden>Synthetic data</span>
 </header>
 
 <main>
-  <section class="card" aria-labelledby="url-h">
-    <h2 id="url-h">Analyse a discussion from a link</h2>
-    <form id="url-form" class="link-form" novalidate>
-      <label for="url-input"><strong>Link to a post or thread</strong> <span class="muted">(Bluesky, Reddit, Hacker News, review pages)</span></label>
-      <div class="link-row">
-        <input id="url-input" type="url" inputmode="url" autocomplete="off" spellcheck="false"
-               placeholder="https://bsky.app/profile/name/post/…  or  https://www.reddit.com/r/name/comments/…  or  https://news.ycombinator.com/item?id=…">
-        <button id="url-start" type="submit" class="primary">Analyse the discussion</button>
-      </div>
-    </form>
-    <div id="url-status" class="muted progress-line" role="status"></div>
-    <div id="url-error" class="error" role="alert" hidden></div>
-    <p class="muted">Paste the link of a <strong>Bluesky</strong> post, a <strong>Reddit</strong> thread or a <strong>Hacker News</strong> story (review pages on Google Maps, App Store, Google Play, Tripadvisor, Yelp, G2 and TikTok are read too, without histories). Through <strong>Context.dev</strong> we read
-      the discussion and every participant's newest public posts (on Bluesky also replies and reposts), then look for accounts that act together.
-      Only public data, no login. The result gets its own private link and is deleted after 3 hours. A swarm is a lead to check, not proof.
-      Bluesky and Hacker News give the whole thread; Reddit gives the comments a browser sees before “load more” (about 25). For more Reddit comments,
-      click “View more comments” and use the saved-page card below. Reworded copies are found too (similar-text signal).</p>
-  </section>
+  <section class="card input-card" aria-label="Start an analysis">
+    <div class="tabs" role="tablist">
+      <button type="button" role="tab" id="tab-link" aria-controls="pane-link" aria-selected="true">Link</button>
+      <button type="button" role="tab" id="tab-reddit" aria-controls="pane-reddit" aria-selected="false">Saved Reddit page</button>
+      <button type="button" role="tab" id="tab-csv" aria-controls="pane-csv" aria-selected="false">Your own CSV</button>
+    </div>
 
-  <section class="card" aria-labelledby="reddit-h">
-    <h2 id="reddit-h">Analyse a saved Reddit page (more comments)</h2>
-    <ol class="steps">
-      <li>Open the thread on reddit.com, scroll down and click <strong>“View more comments”</strong> a few times, so more comments load.</li>
-      <li>Save the page: <kbd>Ctrl</kbd>+<kbd>S</kbd> (Mac: <kbd>⌘</kbd>+<kbd>S</kbd>).</li>
-      <li>Choose the saved <code>.html</code> file here.</li>
-    </ol>
-    <form id="reddit-form" class="drop" novalidate>
-      <label class="single">
-        <strong>Saved thread page</strong>
-        <input id="reddit-file" type="file" accept=".html,.htm,text/html">
-      </label>
-      <button id="reddit-start" type="submit" class="primary">Analyse the thread</button>
-    </form>
-    <div id="reddit-status" class="muted progress-line" role="status"></div>
-    <div id="reddit-error" class="error" role="alert" hidden></div>
-    <p class="muted">We read the commenters from the page, fetch each one's newest public Reddit comments with
-      <strong>Context.dev</strong>, and look for accounts that act together. The result gets its own private link and is deleted after 3 hours.
-      Why save the page? A link gives the first ~25 comments; a page you saved after loading more has all of those.</p>
-  </section>
+    <div id="pane-link" role="tabpanel" aria-labelledby="tab-link">
+      <form id="url-form" class="link-form" novalidate>
+        <label for="url-input" class="sr-only">Link to a post or thread</label>
+        <div class="link-row">
+          <input id="url-input" type="url" inputmode="url" autocomplete="off" spellcheck="false"
+                 placeholder="Paste a Bluesky, Reddit or Hacker News link">
+          <button id="url-start" type="submit" class="primary">Analyse</button>
+        </div>
+      </form>
+      <div id="url-status" class="muted progress-line" role="status"></div>
+      <div id="url-error" class="error" role="alert" hidden></div>
+      <details class="how">
+        <summary>What happens</summary>
+        <p class="muted">We read the discussion and every participant's newest public posts through <strong>Context.dev</strong>, then look for
+          accounts that share the same content far more often than chance. Public data only, no login. The result gets a private link and is deleted after 3 hours.
+          Bluesky and Hacker News give the whole thread; Reddit gives about 25 comments (use the saved-page tab for more). Review pages on Google Maps, App Store,
+          Google Play, Tripadvisor, Yelp, G2 and TikTok work too, without histories.</p>
+      </details>
+    </div>
 
-  <section class="card" aria-labelledby="upload-h">
-    <h2 id="upload-h">Analyse your own comments (CSV)</h2>
-    <form id="upload-form" class="drop" novalidate>
-      <div class="pickers">
-        <label>
-          <strong>Comments CSV</strong> <span class="muted">(required)</span>
-          <input id="comments-file" type="file" accept=".csv,text/csv">
+    <div id="pane-reddit" role="tabpanel" aria-labelledby="tab-reddit" hidden>
+      <ol class="steps">
+        <li>Open the thread on reddit.com and click <strong>“View more comments”</strong> a few times.</li>
+        <li>Save the page: <kbd>Ctrl</kbd>+<kbd>S</kbd> (Mac: <kbd>⌘</kbd>+<kbd>S</kbd>).</li>
+        <li>Choose the saved <code>.html</code> file:</li>
+      </ol>
+      <form id="reddit-form" class="drop" novalidate>
+        <label class="single">
+          <strong>Saved thread page</strong>
+          <input id="reddit-file" type="file" accept=".html,.htm,text/html">
         </label>
-        <label>
-          <strong>Profiles CSV</strong> <span class="muted">(optional: labels and creation dates)</span>
-          <input id="profiles-file" type="file" accept=".csv,text/csv">
-        </label>
-      </div>
-      <span class="muted">Or drop one or both files here. A file whose name contains “profile” is taken as the profiles file. UTF-8, at most 20 MB together.</span>
-      <button id="analyse" type="submit" class="primary">Analyse</button>
-    </form>
-    <p id="status" class="muted" role="status"></p>
-    <div id="error" class="error" role="alert" hidden></div>
-    <p>
-      <button id="try-sample" type="button">Run the synthetic sample</button>
-      <a href="samples/synthetic_comments.csv" download>Sample comments.csv</a>
-      <a href="samples/synthetic_profiles.csv" download>Sample profiles.csv</a>
-    </p>
-    <details>
-      <summary>Expected file format</summary>
+        <button id="reddit-start" type="submit" class="primary">Analyse the thread</button>
+      </form>
+      <div id="reddit-status" class="muted progress-line" role="status"></div>
+      <div id="reddit-error" class="error" role="alert" hidden></div>
+    </div>
+
+    <div id="pane-csv" role="tabpanel" aria-labelledby="tab-csv" hidden>
+      <form id="upload-form" class="drop" novalidate>
+        <div class="pickers">
+          <label>
+            <strong>Comments CSV</strong> <span class="muted">(required)</span>
+            <input id="comments-file" type="file" accept=".csv,text/csv">
+          </label>
+          <label>
+            <strong>Profiles CSV</strong> <span class="muted">(optional: labels, creation dates)</span>
+            <input id="profiles-file" type="file" accept=".csv,text/csv">
+          </label>
+        </div>
+        <span class="muted">Or drop the files here. UTF-8, at most 20 MB together.</span>
+        <button id="analyse" type="submit" class="primary">Analyse</button>
+      </form>
+      <p id="status" class="muted" role="status"></p>
+      <div id="error" class="error" role="alert" hidden></div>
+      <details class="how">
+        <summary>Expected file format</summary>
       <p>First line is the header. Column names may be in any case. Comma or semicolon separated (Excel's Finnish CSV works). Every column except <code>username</code> may be missing; the result says which signals could run.</p>
       <h3>comments.csv, one row per comment</h3>
       <div class="scroll">
@@ -116,7 +120,8 @@
 <pre>username,timestamp,text,repost_of
 some_user,2026-11-01T10:00:00Z,"Text, with a comma, in quotes",</pre>
       <p class="muted">Small files prove little: with few comments the chance test rarely links anyone, by design.</p>
-    </details>
+      </details>
+    </div>
   </section>
 
   <div id="results" hidden>
