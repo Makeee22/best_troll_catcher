@@ -1,26 +1,45 @@
-"""HTTP API for the dashboard. The contract is docs/api.md: change both together.
+"""Read-only HTTP API serving one result, fixed at startup. The contract is docs/api.md: change both together.
 
-    uvicorn swarm.api:app --reload              # synthetic sample data
-    POSTS_FILE=posts.jsonl uvicorn swarm.api:app
+    uvicorn swarm.api:app --reload                                    # synthetic sample
+    RESULT_FILE=result.json uvicorn swarm.api:app                     # a result from the command line
+    COMMENTS_FILE=c.csv [PROFILES_FILE=p.csv] uvicorn swarm.api:app   # analysed at startup
 """
+import json
 import os
+import tempfile
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 
-from .detect import detect, evaluate, load_posts
-from .synthetic import generate
+from .core import analyze
+from .load import InputError
+from .synthetic import write
 
-posts_file = os.environ.get("POSTS_FILE")
-posts = load_posts(posts_file) if posts_file else generate()
-swarms = detect(posts)
-by_id = {swarm["id"]: swarm for swarm in swarms}
-source = {
-    "name": os.path.basename(posts_file) if posts_file else "synthetic sample",
-    "synthetic": any(post.get("synthetic") for post in posts),
-    "posts": len(posts),
-    "accounts": len({str(post["account"]) for post in posts}),
-}
+
+def _load_result():
+    result_file = os.environ.get("RESULT_FILE") or None
+    comments_file = os.environ.get("COMMENTS_FILE") or None
+    profiles_file = os.environ.get("PROFILES_FILE") or None
+    if result_file:
+        try:
+            with open(result_file, encoding="utf-8") as f:
+                result = json.load(f)
+        except (OSError, ValueError) as e:
+            raise SystemExit(f"RESULT_FILE {result_file} cannot be read as JSON: {e}") from None
+        if not isinstance(result, dict) or not all(k in result for k in ("source", "parameters", "signals", "warnings", "clusters")):
+            raise SystemExit(f"RESULT_FILE {result_file} is not a result written by `python -m swarm`")
+        return result
+    if comments_file:
+        try:
+            return analyze(comments_file, profiles_file)
+        except InputError as e:
+            raise SystemExit(f"COMMENTS_FILE cannot be analysed: {e}") from None
+    with tempfile.TemporaryDirectory(prefix="swarm-sample-") as work:
+        return analyze(*write(work))
+
+
+result = _load_result()
+by_id = {c["id"]: c for c in result["clusters"]}
 
 app = FastAPI(title="best_troll_catcher")
 # Read-only public API: the dashboard may be served from another origin.
@@ -34,16 +53,14 @@ def health():
 
 @app.get("/api/swarms")
 def list_swarms():
-    summaries = [
-        {
-            "id": s["id"], "size": s["size"], "edge_count": len(s["edges"]),
-            "post_count": len(s["posts"]), "first_seen": s["first_seen"],
-            "last_seen": s["last_seen"], "sample_text": s["posts"][0]["text"],
-            "verdict": s["verdict"],
-        }
-        for s in swarms
+    swarms = [
+        {"id": c["id"], "size": c["size"], "confidence": c["confidence"], "edge_count": c["edge_count"],
+         "first_seen": c["first_seen"], "last_seen": c["last_seen"],
+         "sample": c["top_items"][0] if c["top_items"] else None}
+        for c in result["clusters"]
     ]
-    return {"source": source, "swarms": summaries}
+    return {"source": result["source"], "parameters": result["parameters"], "signals": result["signals"],
+            "warnings": result["warnings"], "swarms": swarms}
 
 
 @app.get("/api/swarms/{swarm_id}")
@@ -55,4 +72,4 @@ def get_swarm(swarm_id: str):
 
 @app.get("/api/metrics")
 def metrics():
-    return {"source": source, "metrics": evaluate(posts, swarms)}
+    return {"source": result["source"], "metrics": result["metrics"]}

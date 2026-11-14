@@ -93,21 +93,30 @@ One owner per directory. This is how four people avoid git conflicts.
 Backend (Python 3.12+), run from `backend/`:
 
 ```bash
-python -m venv .venv && .venv/bin/pip install -r requirements.txt   # once
-.venv/bin/uvicorn swarm.api:app --reload                            # API on :8000 with synthetic data
-POSTS_FILE=../data/raw/posts.jsonl .venv/bin/uvicorn swarm.api:app  # API on a real dataset
-python -m swarm.synthetic                                           # evaluation on synthetic data
-python -m pytest -q                                                 # tests (needs pytest)
-docker build -t swarm-backend .                                     # image; serves on port 8000
+python -m venv .venv && .venv/bin/pip install -r requirements-dev.txt   # once (run-time: requirements.txt)
+python -m swarm.synthetic DIR                                           # write the synthetic sample (comments.csv, profiles.csv)
+python -m swarm COMMENTS [--profiles FILE] [--out FILE] [--min-confidence X]   # the core: summary on stdout, JSON with --out
+python -m swarm.cresci SOURCE_DIR OUT_DIR                               # convert Cresci 2017 to the standard format
+.venv/bin/uvicorn swarm.api:app --reload                                # API on :8000, synthetic sample
+RESULT_FILE=result.json .venv/bin/uvicorn swarm.api:app                 # API serving a result written with --out
+COMMENTS_FILE=c.csv [PROFILES_FILE=p.csv] .venv/bin/uvicorn swarm.api:app   # API analysing files at startup
+.venv/bin/python -m pytest -q                                           # tests
+docker build -t swarm-backend .                                         # image; serves on port 8000
 ```
 
 Front end and deploy: not written yet.
 
 ## Architecture
 
-**This section and "Commands" describe the first skeleton, which is being replaced.** The core is built from `docs/core-plan.md`; its task 7 rewrites both sections. The skeleton's 60-second rule was measured to be the wrong signal on real data (`docs/core-design.md`, "What the data showed").
+One DuckDB connection per run carries the data through four stages; each is a module that reads and writes named tables. The method is in `docs/core-design.md`, the build plan in `docs/core-plan.md`.
 
-- `backend/swarm/detect.py`: the detection. Posts are grouped by shared content (normalised text, link, reposted post). Two accounts are linked when they post the same content within `WINDOW_SECONDS` on at least `MIN_SHARED` separate occasions; one shared post never links anyone, which keeps breaking news and viral posts out. Linked groups of at least `MIN_SIZE` accounts are swarms. `evaluate()` gives account-level precision, recall and false-positive rate from the `coordinated` labels.
-- `backend/swarm/synthetic.py`: simulated posts with known swarms and innocent look-alikes, for tests only.
-- `backend/swarm/api.py`: read-only FastAPI app. Detection runs once at startup. The contract is `docs/api.md`.
-- Not built yet: the decision model (AI Router), the Context.dev live feed, the front end, deploy.
+- `backend/swarm/load.py`: reads the two CSV files into the tables `comments` and `profiles`, collects warnings; `InputError` for input that cannot be analysed.
+- `backend/swarm/detect.py`: items (shared content per signal), account pairs, the chance test, links, clusters, each member's copied share and the confidence.
+- `backend/swarm/evaluate.py`: precision, recall and false-positive rate from the `label` column. Labels measure, they never train.
+- `backend/swarm/core.py`: `analyze()` runs the stages and builds the result document.
+- `backend/swarm/__main__.py`: the command line, a thin wrapper around `analyze()`.
+- `backend/swarm/synthetic.py`: simulated data in the standard format with known swarms and innocent look-alikes (`synthetic = 1` on every comment).
+- `backend/swarm/cresci.py`: converts the Cresci 2017 zips to the standard format.
+- `backend/swarm/api.py`: read-only FastAPI app serving one result, fixed at startup (`RESULT_FILE`, else `COMMENTS_FILE` + `PROFILES_FILE`, else the synthetic sample). A bad file stops startup with a message. The contract is `docs/api.md`.
+- Tests: one `backend/test_*.py` per module; `conftest.py` has the `make_csv` helper.
+- Not built yet (part 2, the website): the upload and `POST` endpoints, the language-model explanation, collecting comments with Context.dev, the front end, deploy.

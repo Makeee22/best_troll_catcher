@@ -133,11 +133,11 @@ Record every evaluation run here: date and time, dataset, variant, precision, re
 Each role edits only its own block.
 
 ### Backend
-- Done: walking skeleton in `backend/` (now being replaced). Research, measurements on Cresci 2017, the core design (`docs/core-design.md`) and its build plan (`docs/core-plan.md`).
-- Doing: building the core from the plan, on the git branch `arde/core`.
-- Blocked: nothing for the core. The design waits for the team's approval.
+- Done: research, measurements on Cresci 2017, the core design (`docs/core-design.md`) and build plan (`docs/core-plan.md`). The core on branch `arde/core`: CSV loading, detection, metrics, result document, synthetic data, Cresci converter, command line (`python -m swarm`), and the read-only API on the new result. The contract is rewritten in `docs/api.md`.
+- Doing: the real-data numbers (Results table) and merging `arde/core` to `main` once the plan's task 7 is green.
+- Blocked: nothing.
 - For everyone: please read `docs/core-design.md`, at least "Input format", "Output" and "Known limits".
-- For Makeee22: the output format in the design replaces the one in `docs/api.md`, which is rewritten in task 7 of the plan. `verdict` is gone; `confidence` replaces it. The paths and port 8000 stay. The Docker image is not built or tested yet.
+- For Makeee22: build against `docs/api.md` (new fields; `verdict` is gone, `confidence` replaces it; paths and port 8000 are unchanged). The image still listens on port 8000 and has not been built locally (no Docker on the backend owner's machine), so please build it first. It needs `requirements.txt` (now with `duckdb`) and `swarm/` only. The API shows one result, chosen by environment variables: `RESULT_FILE` (a JSON file from `python -m swarm ... --out`), else `COMMENTS_FILE` and optionally `PROFILES_FILE` (analysed at startup), else the synthetic sample. If a variable points to a bad file, the container exits with one message line, so check the container log. Mount the data file as a volume; never bake data into the image.
 - For TheSnowman99: the parameters to tune are in the design under "Parameters". Cresci 2017 is on Arde1001's machine only; `data/README.md` should say where it comes from (http://mib.projects.iit.cnr.it) and that its licence allows research use only.
 
 ### Front end + infrastructure
