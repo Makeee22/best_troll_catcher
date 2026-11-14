@@ -1,97 +1,82 @@
-"""Find groups of accounts that repeatedly post the same content within seconds of each other.
-
-One shared post proves nothing (breaking news, a viral post), so two accounts are
-linked only after they co-post on several separate occasions.
-"""
 import hashlib
-import json
-import re
-from collections import defaultdict
-from datetime import datetime, timezone
 
-# Detection criteria. The data owner tunes these; docs/criteria.md explains them.
-WINDOW_SECONDS = 60  # two posts count as simultaneous within this gap
-MIN_SHARED = 3       # a pair must co-post on this many separate occasions to be linked
-MIN_SIZE = 3         # smallest group reported as a swarm
-MIN_WORDS = 5        # shorter texts ("good morning") are reused innocently
+from . import similar
+from .load import InputError
 
-URL = re.compile(r"https?://\S+")
+# Fewest words a text needs to count as something two accounts can copy. Shorter texts ("good morning") are reused innocently.
+MIN_WORDS = 5
+# Fewest different items two accounts must share in one signal before they are linked.
+MIN_SHARED = 2
+# False discovery rate of the chance test (Benjamini-Hochberg).
+ALPHA = 0.01
+# Smallest group of accounts that is a cluster.
+MIN_SIZE = 3
+# Most account-pair rows built; above it the most widely shared items are left out.
+PAIR_BUDGET = 1_000_000_000
+KINDS = ("text", "link", "repost", "reply")
 
+# Column each kind reads; a kind is skipped when all of its columns are empty.
+_NEEDS = {"text": ("text",), "link": ("text", "links"), "repost": ("repost_of",), "reply": ("parent_id",)}
 
-def load_posts(path):
-    """Read posts from a JSON Lines file (format: docs/api.md)."""
-    posts = []
-    with open(path, encoding="utf-8") as f:
-        for n, line in enumerate(f, 1):
-            if not line.strip():
-                continue
-            post = json.loads(line)
-            for field in ("id", "account", "timestamp"):
-                if field not in post:
-                    raise ValueError(f"{path}:{n}: missing field '{field}'")
-            posts.append(post)
-    return posts
+_WORDS = r"""regexp_extract_all(
+        regexp_replace(regexp_replace(lower(coalesce(text, '')), 'https?://\S+', ' ', 'g'), '@[\p{L}\p{N}_]+', ' ', 'g'),
+        '[\p{L}\p{N}_]+')"""
 
+_ITEMS_SQL = r"""
+create or replace table item as
+with c as (select comment_id, username, timestamp as ts, text, links, parent_id, repost_of from comments),
+t as (select *, __WORDS__ as words
+      from c where repost_of is null),
+raw as (
+  select username, 'repost' as kind, hash(repost_of) as key, repost_of as value, ts from c where repost_of is not null
+  union all
+  select username, 'text', hash(array_to_string(words, ' ')), text, ts from t where len(words) >= __MIN_WORDS__
+  union all
+  select username, 'link', hash(url), url, ts
+    from (select username, ts, rtrim(unnest(regexp_extract_all(coalesce(text, '') || ' ' || coalesce(links, ''), 'https?://\S+')), '.,)') as url
+          from c where repost_of is null)
+  union all
+  select username, 'reply', hash(parent_id), parent_id, ts from c where parent_id is not null and repost_of is null)
+select username, kind, key, first(value order by ts nulls last, value) as value, min(ts) as first_seen, max(ts) as last_seen
+from raw group by username, kind, key
+"""
 
-def parse_time(value):
-    t = datetime.fromisoformat(value.replace("Z", "+00:00"))
-    if t.tzinfo is None:
-        t = t.replace(tzinfo=timezone.utc)
-    return t.timestamp()
-
-
-def normalise(text):
-    """Lower-case words only, without URLs and @mentions, so small edits don't hide a copy."""
-    text = URL.sub(" ", text.lower())
-    text = re.sub(r"@\w+", " ", text)
-    return " ".join(re.findall(r"\w+", text))
-
-
-def content_keys(post):
-    """What a post shares with its copies: its text, its links, the post it reposts."""
-    text = post.get("text") or ""
-    keys = []
-    words = normalise(text)
-    if len(words.split()) >= MIN_WORDS:
-        keys.append(("text", words))
-    for url in set(post.get("links") or URL.findall(text)):
-        keys.append(("link", url.rstrip(".,)")))
-    if post.get("repost_of"):
-        keys.append(("repost", str(post["repost_of"])))
-    return keys
+# Distinct normalised texts, for the optional similar-text signal.
+_TEXT_NORM_SQL = r"""
+create or replace table text_norm as
+select distinct hash(norm) as key, norm from (
+  select array_to_string(__WORDS__, ' ') as norm, len(__WORDS__) as n from comments where repost_of is null)
+where n >= __MIN_WORDS__
+"""
 
 
-def detect(posts, window=WINDOW_SECONDS, min_shared=MIN_SHARED, min_size=MIN_SIZE):
-    """Return the swarms found in posts, largest first."""
-    by_id = {str(p["id"]): p for p in posts}
-    by_key = defaultdict(list)
-    for post in posts:
-        t = parse_time(post["timestamp"])
-        for key in content_keys(post):
-            by_key[key].append((t, str(post["account"]), str(post["id"])))
+def _skipped(con):
+    """Kinds whose input columns are entirely empty, with the reason."""
+    filled = {}
+    for column in ("text", "links", "repost_of", "parent_id"):
+        filled[column] = con.execute(f"select count({column}) from comments").fetchall()[0][0] > 0
+    out = {}
+    for kind, columns in _NEEDS.items():
+        if not any(filled[c] for c in columns):
+            out[kind] = "column " + " and ".join(columns) + " is missing or empty" if len(columns) == 1 else \
+                "columns " + " and ".join(columns) + " are both missing or empty"
+    return out
 
-    # For every pair of accounts: which posts of each took part in a simultaneous copy.
-    # shortcut: quadratic inside one time window, fine up to ~100k posts; bucket by time beyond that
-    pair_posts = defaultdict(lambda: (set(), set()))
-    for items in by_key.values():
-        items.sort()
-        for i, (t1, a1, id1) in enumerate(items):
-            for j in range(i + 1, len(items)):
-                t2, a2, id2 = items[j]
-                if t2 - t1 > window:
-                    break
-                if a1 == a2:
-                    continue
-                (x, idx), (y, idy) = sorted([(a1, id1), (a2, id2)])
-                first, second = pair_posts[(x, y)]
-                first.add(idx)
-                second.add(idy)
 
-    # A post with the same text and link as another is one occasion, not two, and one
-    # account repeating itself is one occasion too: count the less active side's posts.
-    edges = {pair: min(len(a), len(b)) for pair, (a, b) in pair_posts.items()}
-    edges = {pair: n for pair, n in edges.items() if n >= min_shared}
+def _max_sharers(con, pair_budget):
+    """Largest number of accounts sharing one item whose pairs still fit in the budget (cheapest items first)."""
+    rows = con.execute(
+        "select df, count(*) * (df * (df - 1) // 2) from df where df >= 2 group by df order by df").fetchall()
+    total, best = 0, 1
+    for df, cost in rows:
+        total += cost
+        if total > pair_budget:
+            break
+        best = df
+    return best
 
+
+def _clusters(links, min_size):
     parent = {}
 
     def find(x):
@@ -101,65 +86,88 @@ def detect(posts, window=WINDOW_SECONDS, min_shared=MIN_SHARED, min_size=MIN_SIZ
             x = parent[x]
         return x
 
-    for a, b in edges:
+    for a, b in links:
         parent[find(a)] = find(b)
+    groups = {}
+    for x in list(parent):
+        groups.setdefault(find(x), []).append(x)
+    return [sorted(g) for g in groups.values() if len(g) >= min_size]
 
-    groups = defaultdict(list)
-    for pair in edges:
-        groups[find(pair[0])].append(pair)
 
-    swarms = []
-    for pairs in groups.values():
-        accounts = sorted({account for pair in pairs for account in pair})
-        if len(accounts) < min_size:
+def detect(con, *, min_shared=MIN_SHARED, alpha=ALPHA, min_size=MIN_SIZE, pair_budget=PAIR_BUDGET, similar_text=False):
+    warnings = []
+    skipped = _skipped(con)
+    fill = lambda sql: sql.replace("__WORDS__", _WORDS).replace("__MIN_WORDS__", str(int(MIN_WORDS)))
+    con.execute(fill(_ITEMS_SQL))
+    if similar_text:
+        con.execute(fill(_TEXT_NORM_SQL))
+        similar_warnings = similar.add_items(con)
+        warnings += similar_warnings
+        if similar_warnings:
+            skipped["similar_text"] = similar_warnings[0]
+    if con.execute("select count(*) from item").fetchall()[0][0] == 0:
+        raise InputError("nothing to compare: needs comments with a text of at least "
+                         f"{MIN_WORDS} words, links, repost_of or parent_id (columns text, links, repost_of, parent_id)")
+
+    con.execute("create or replace table df as select kind, key, count(*) as df from item group by kind, key")
+    con.execute("create or replace table n as select username, kind, count(*) as n from item group by username, kind")
+    con.execute("create or replace table s as select kind, sum(df::double * df) / (sum(df)::double * sum(df)) as s from df group by kind")
+
+    max_sharers = _max_sharers(con, pair_budget)
+    left_out = con.execute("select count(*) from df where df > ?", [max_sharers]).fetchall()[0][0]
+    if left_out:
+        warnings.append(f"pair budget {pair_budget:,} exceeded: left out {left_out:,} items shared by more than "
+                        f"{max_sharers} accounts; they say least about coordination")
+
+    con.execute("""
+        create or replace table pair as
+        with shared as (select i.username, i.kind, i.key from item i join df d using (kind, key)
+                        where d.df between 2 and ?),
+        p as (select a.username as u1, b.username as u2, a.kind, count(*) as c
+              from shared a join shared b on a.kind = b.kind and a.key = b.key and a.username < b.username
+              group by all),
+        e as (select p.*, n1.n * n2.n * s.s as expected
+              from p join n n1 on n1.username = p.u1 and n1.kind = p.kind
+                     join n n2 on n2.username = p.u2 and n2.kind = p.kind
+                     join s on s.kind = p.kind)
+        select u1, u2, kind, c,
+               case when expected < c
+                    then c * ln(expected) - expected - lgamma(c + 1) - ln(1 - expected / (c + 1))
+                    else 0 end as logp
+        from e""", [max_sharers])
+    m = con.execute("select count(*) from pair").fetchall()[0][0]
+    cut = None
+    if m:
+        cut = con.execute("""
+            select max(logp) from (select logp, row_number() over (order by logp) as k from pair where logp < 0)
+            where logp <= ln(?) + ln(k) - ln(?)""", [alpha, m]).fetchall()[0][0]
+    con.execute("create or replace table link (u1 VARCHAR, u2 VARCHAR, kind VARCHAR, shared BIGINT)")
+    if cut is not None:
+        con.execute("insert into link select u1, u2, kind, c from pair where c >= ? and logp <= ?", [min_shared, cut])
+
+    groups = _clusters(con.execute("select u1, u2 from link").fetchall(), min_size)
+    con.execute("create or replace table member (username VARCHAR, cluster VARCHAR, copied_share DOUBLE)")
+    con.execute("create or replace table cluster (cluster VARCHAR, size BIGINT, confidence DOUBLE)")
+    if groups:
+        ids = [hashlib.sha1(",".join(g).encode()).hexdigest()[:10] for g in groups]
+        con.execute("create or replace temp table member_cluster as "
+                    "select unnest(?::VARCHAR[]) as username, unnest(?::VARCHAR[]) as cluster",
+                    [[u for g in groups for u in g], [i for g, i in zip(groups, ids) for _ in g]])
+        con.execute("""
+            insert into member
+            with mi as (select mc.cluster, i.username, i.kind, i.key from item i join member_cluster mc using (username)),
+            cnt as (select cluster, kind, key, count(*) as k from mi group by all)
+            select mi.username, mi.cluster, avg((cnt.k > 1)::int) from mi join cnt using (cluster, kind, key)
+            group by mi.cluster, mi.username""")
+        con.execute("insert into cluster select cluster, count(*), round(avg(copied_share), 9) from member group by cluster")
+
+    signals = {}
+    for kind in KINDS + ((("similar_text",)) if similar_text else ()):
+        if kind in skipped:
+            signals[kind] = {"status": "skipped", "reason": skipped[kind], "items": 0, "links": 0}
             continue
-        post_ids = set()
-        for pair in pairs:
-            post_ids |= pair_posts[pair][0] | pair_posts[pair][1]
-        evidence = sorted((by_id[i] for i in post_ids), key=lambda p: parse_time(p["timestamp"]))
-        swarms.append({
-            "id": hashlib.sha1(",".join(accounts).encode()).hexdigest()[:10],
-            "size": len(accounts),
-            "accounts": accounts,
-            "edges": [{"source": a, "target": b, "shared": edges[(a, b)]} for a, b in sorted(pairs)],
-            "first_seen": evidence[0]["timestamp"],
-            "last_seen": evidence[-1]["timestamp"],
-            "posts": [
-                {"id": str(p["id"]), "account": str(p["account"]),
-                 "timestamp": p["timestamp"], "text": p.get("text") or ""}
-                for p in evidence
-            ],
-            "verdict": None,  # filled by the decision model once it exists
-        })
-    return sorted(swarms, key=lambda s: (-s["size"], s["id"]))
-
-
-def evaluate(posts, swarms):
-    """Account-level precision, recall and false-positive rate, or None without labels.
-
-    An account counts as coordinated if any of its posts has "coordinated": true.
-    """
-    truth = {}
-    for post in posts:
-        if "coordinated" in post:
-            account = str(post["account"])
-            truth[account] = truth.get(account, False) or bool(post["coordinated"])
-    if not truth:
-        return None
-    flagged = {account for swarm in swarms for account in swarm["accounts"]}
-    tp = sum(1 for a, bad in truth.items() if bad and a in flagged)
-    fp = sum(1 for a, bad in truth.items() if not bad and a in flagged)
-    fn = sum(1 for a, bad in truth.items() if bad and a not in flagged)
-    tn = len(truth) - tp - fp - fn
-
-    def ratio(part, whole):
-        return round(part / whole, 4) if whole else None
-
-    return {
-        "labelled_accounts": len(truth),
-        "true_positives": tp, "false_positives": fp,
-        "false_negatives": fn, "true_negatives": tn,
-        "precision": ratio(tp, tp + fp),
-        "recall": ratio(tp, tp + fn),
-        "false_positive_rate": ratio(fp, fp + tn),
-    }
+        signals[kind] = {
+            "status": "used", "reason": None,
+            "items": con.execute("select count(*) from item where kind = ?", [kind]).fetchall()[0][0],
+            "links": con.execute("select count(*) from link where kind = ?", [kind]).fetchall()[0][0]}
+    return signals, warnings

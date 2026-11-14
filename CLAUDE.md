@@ -6,8 +6,15 @@ Guidance for Claude Code (and any AI coding tool) in this repository. Every team
 
 A Junction 2026 hackathon project (13–15.11.2026, team of 4) for two partner challenges:
 
-- **Hostinger, "Decode the Noise"** (main): an AI tool that detects propaganda, bots and bad actors online. Our direction is **Spot the swarm**: detect coordinated inauthentic behaviour (bot networks, astroturfing, brigading) from posting timing, account similarity, text reuse and amplification patterns, not from any single post.
-- **Context.dev** (second): "a product that reacts to the live web". Their API must be a real part of the product: it feeds live web content into our ingest.
+- **Hostinger, "Decode the Noise"** (main): an AI tool that detects propaganda, bots and bad actors online. Our direction is **Spot the swarm**: find groups of accounts that behave like one actor (bot networks, astroturfing, brigading) from what they share and how, not from any single post. Lone bots are out of scope.
+- **Context.dev** (second): "a product that reacts to the live web". Their API must be a real part of the product: it collects the comments of a site the user points at.
+
+The product has two parts (team decision 14.11):
+
+1. **The core** (`backend/`, the MVP): an open-source program anyone can download and run. Input: a CSV of comments and an optional CSV of profiles, in one standard format for any website. Output: a list of account clusters that are probably coordinated, each with a confidence and its evidence. It is purely algorithmic: no language model, no accounts, no paid services. It must scale from a laptop to a large dataset. Design: `docs/core-design.md`; build plan: `docs/core-plan.md`.
+2. **The website** (after the MVP): runs the core on Hostinger by default. Connected accounts or API keys (Hostinger AI Router, Gemini, OpenAI, Anthropic, Context.dev) add optional features, such as collecting a site's comments from a link or explaining a cluster in plain language. "Run locally" links to the install instructions on GitHub; a result produced locally can be uploaded to the website for the connected tools.
+
+Not confirmed yet: whether this split fits Hostinger's idea of the challenge. The team asks their mentors when they are back at the venue.
 
 Hard requirements:
 - The product **runs live on Hostinger infrastructure with a public URL** the judges can open.
@@ -52,13 +59,16 @@ One owner per directory. This is how four people avoid git conflicts.
 ## Secrets and data
 
 - API keys live only in `.env`, which is ignored. Never print a key into code, docs, commit messages or logs.
-- `Junction Platform.txt` and `kaikki.pdf` (the event guide and challenge texts) are ignored on purpose: they hold personal data and other partners' keys. Never commit or quote them. Partner promo codes stay out of the repo too.
-- Raw datasets go in `data/raw/` (ignored). `data/README.md` records where each one comes from and its license. No file over about 50 MB in git.
+- `Junction Platform.txt`, `kaikki.pdf` and `techpartners.txt` (the event guide, challenge texts and partner notes) are ignored on purpose: they hold personal data and other partners' keys. Never commit or quote them. Partner promo codes stay out of the repo too.
+- Raw datasets go in `data/raw/` or `backend/data/` (both ignored). `data/README.md` records where each one comes from and its license. No file over about 50 MB in git.
+- The Cresci 2017 dataset in `backend/data/` is for research use only and holds real people's tweets. Never commit it, quote its content, or serve it from the live site. Only aggregate numbers leave the machine.
 
 ## Detection rules
 
-- The language model is the **judge of evidence**, never the only detector. Deterministic signals find the candidates first.
-- Every verdict lists its evidence and the innocent explanations that were considered (breaking news, real campaigns, benign automated feeds, one viral post).
+- The core is deterministic. No language model decides who is flagged. On the website a language model may explain a cluster the core found, never find or overrule one.
+- Every cluster lists its evidence. The innocent look-alikes (breaking news, real campaigns, benign automated feeds, one viral post) each have a test.
+- Any input column may be missing. The core warns and skips the signals that need it. It stops only when `username` is missing or no signal can run.
+- Labels are used to measure, never to train a model. Bot-detection benchmarks contain shortcuts (see `docs/core-design.md`). The one value picked with the labels visible is the confidence cut; say so wherever results are shown.
 - Every change to detection is re-run on the evaluation set, and the new numbers go into `PLAN.md`.
 - Synthetic or simulated test data is always labelled as synthetic, in the data and in anything shown to judges.
 - Prefer the smallest version that works. No features outside the plan.
@@ -83,19 +93,31 @@ One owner per directory. This is how four people avoid git conflicts.
 Backend (Python 3.12+), run from `backend/`:
 
 ```bash
-python -m venv .venv && .venv/bin/pip install -r requirements.txt   # once
-.venv/bin/uvicorn swarm.api:app --reload                            # API on :8000 with synthetic data
-POSTS_FILE=../data/raw/posts.jsonl .venv/bin/uvicorn swarm.api:app  # API on a real dataset
-python -m swarm.synthetic                                           # evaluation on synthetic data
-python -m pytest -q                                                 # tests (needs pytest)
-docker build -t swarm-backend .                                     # image; serves on port 8000
+python -m venv .venv && .venv/bin/pip install -r requirements-dev.txt   # once (run-time: requirements.txt)
+python -m swarm.synthetic DIR                                           # write the synthetic sample (comments.csv, profiles.csv)
+python -m swarm COMMENTS [--profiles FILE] [--out FILE] [--min-confidence X] [--similar-text]   # the core: summary on stdout, JSON with --out; --similar-text needs pip install model2vec
+python -m swarm.cresci SOURCE_DIR OUT_DIR                               # convert Cresci 2017 to the standard format
+.venv/bin/uvicorn swarm.api:app --reload                                # API on :8000, synthetic sample
+RESULT_FILE=result.json .venv/bin/uvicorn swarm.api:app                 # API serving a result written with --out
+COMMENTS_FILE=c.csv [PROFILES_FILE=p.csv] .venv/bin/uvicorn swarm.api:app   # API analysing files at startup
+.venv/bin/python -m pytest -q                                           # tests
+docker build -t swarm-backend .                                         # image; serves on port 8000
 ```
 
 Front end and deploy: not written yet.
 
 ## Architecture
 
-- `backend/swarm/detect.py`: the detection. Posts are grouped by shared content (normalised text, link, reposted post). Two accounts are linked when they post the same content within `WINDOW_SECONDS` on at least `MIN_SHARED` separate occasions; one shared post never links anyone, which keeps breaking news and viral posts out. Linked groups of at least `MIN_SIZE` accounts are swarms. `evaluate()` gives account-level precision, recall and false-positive rate from the `coordinated` labels.
-- `backend/swarm/synthetic.py`: simulated posts with known swarms and innocent look-alikes, for tests only.
-- `backend/swarm/api.py`: read-only FastAPI app. Detection runs once at startup. The contract is `docs/api.md`.
-- Not built yet: the decision model (AI Router), the Context.dev live feed, the front end, deploy.
+One DuckDB connection per run carries the data through four stages; each is a module that reads and writes named tables. The method is in `docs/core-design.md`, the build plan in `docs/core-plan.md`.
+
+- `backend/swarm/load.py`: reads the two CSV files into the tables `comments` and `profiles`, collects warnings; `InputError` for input that cannot be analysed.
+- `backend/swarm/detect.py`: items (shared content per signal), account pairs, the chance test, links, clusters, each member's copied share and the confidence.
+- `backend/swarm/evaluate.py`: precision, recall and false-positive rate from the `label` column. Labels measure, they never train.
+- `backend/swarm/core.py`: `analyze()` runs the stages and builds the result document.
+- `backend/swarm/__main__.py`: the command line, a thin wrapper around `analyze()`.
+- `backend/swarm/synthetic.py`: simulated data in the standard format with known swarms and innocent look-alikes (`synthetic = 1` on every comment).
+- `backend/swarm/similar.py`: optional `similar_text` signal (reworded copies, via a small static embedding model); off by default.
+- `backend/swarm/cresci.py`: converts the Cresci 2017 zips to the standard format.
+- `backend/swarm/api.py`: read-only FastAPI app serving one result, fixed at startup (`RESULT_FILE`, else `COMMENTS_FILE` + `PROFILES_FILE`, else the synthetic sample). A bad file stops startup with a message. The contract is `docs/api.md`.
+- Tests: one `backend/test_*.py` per module; `conftest.py` has the `make_csv` helper.
+- Not built yet (part 2, the website): the upload and `POST` endpoints, the language-model explanation, collecting comments with Context.dev, the front end, deploy.
