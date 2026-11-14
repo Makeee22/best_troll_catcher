@@ -2,7 +2,7 @@ import argparse
 import json
 import sys
 
-from .core import MIN_CONFIDENCE, analyze
+from .core import MEMBER_RATIO, MIN_CONFIDENCE, analyze
 from .load import InputError
 from .similar import ENGLISH_MODEL, MODEL as SIMILAR_MODEL
 
@@ -15,6 +15,8 @@ def main(argv=None):
     parser.add_argument("--out", help="write the full result as JSON to this file")
     parser.add_argument("--min-confidence", type=float, default=MIN_CONFIDENCE,
                         help=f"lowest confidence reported (default {MIN_CONFIDENCE})")
+    parser.add_argument("--member-ratio", type=float, default=MEMBER_RATIO,
+                        help=f"a member is flagged when its copied share is at least this fraction of its cluster's confidence (default {MEMBER_RATIO}; 0 flags every member)")
     parser.add_argument("--similar-text", action="store_true",
                         help="also link accounts that post reworded copies (needs pip install model2vec)")
     parser.add_argument("--similar-model", metavar="NAME", default=SIMILAR_MODEL,
@@ -24,7 +26,8 @@ def main(argv=None):
     args = parser.parse_args(argv)
     try:
         result = analyze(args.comments, args.profiles, min_confidence=args.min_confidence,
-                         similar_text=args.similar_text, ignore_path=args.ignore, similar_model=args.similar_model)
+                         similar_text=args.similar_text, ignore_path=args.ignore, similar_model=args.similar_model,
+                         member_ratio=args.member_ratio)
     except InputError as e:
         print(f"error: {e}", file=sys.stderr)
         return 2
@@ -47,7 +50,7 @@ def main(argv=None):
     for c in clusters:
         says = c["declared_automation"]
         note = f"  ({says['accounts']} of {says['of']} say they are automated: a feed or a swarm posing as one)" if says else ""
-        print(f"  {c['id']}  size {c['size']}  confidence {c['confidence']}{note}")
+        print(f"  {c['id']}  size {c['size']} ({c['flagged_members']} flagged)  confidence {c['confidence']}{note}")
     metrics = result["metrics"]
     if metrics:
         m = metrics["at_min_confidence"]

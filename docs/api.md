@@ -40,7 +40,7 @@ Shortened: the example shows two of the three swarms and the `warnings` list is 
 {
   "source": {"comments_file": "comments.csv", "profiles_file": "profiles.csv",
              "comments": 5773, "accounts": 256, "synthetic": true},
-  "parameters": {"min_words": 5, "min_shared": 2, "long_words": 10, "alpha": 0.01, "min_size": 3, "min_confidence": 0.2},
+  "parameters": {"min_words": 5, "min_shared": 2, "long_words": 10, "alpha": 0.01, "min_size": 3, "min_confidence": 0.2, "member_ratio": 0.5, "created_days": 30},
   "signals": {
     "text":   {"status": "used", "reason": null, "items": 5483, "links": 41},
     "link":   {"status": "used", "reason": null, "items": 60, "links": 0},
@@ -83,12 +83,13 @@ Shortened: the example shows two of the three swarms and the `warnings` list is 
 |---|---|---|
 | `source.synthetic` | `true` when the data is simulated. | **Always show it**, e.g. a "synthetic data" badge. |
 | `parameters` | The settings of this run. | Show them next to the numbers. |
-| `signals` | One entry per kind of evidence (`text`, `link`, `repost`, `reply`, plus `similar_text` when requested): `used` or `skipped` (with a `reason`), how many shared items it found and how many account pairs it linked. | Show which signals ran. |
+| `signals` | One entry per kind of evidence (`text`, `link`, `repost`, `reply`, plus `similar_text` when requested): `used` or `skipped` (with a `reason`), how many shared items it found and how many account pairs it linked. Also `created_together`: `items` = accounts with a creation date, `links` = links that the creation window made stronger (it never links on its own). | Show which signals ran. |
 | `warnings` | Plain sentences about the input, e.g. columns that were missing. | Show them; they explain weak results. |
 | `id` | Stable for the same set of accounts; safe to use in URLs. | |
 | `confidence` | 0 to 1: on average, the share of a member's own content that another member also has. Not a probability. See `docs/core-design.md`. | A bar or a number. |
 | `edge_count` | Number of linked account pairs (the true number, even when `edges` is cut). | |
 | `sample` | The most widely shared item of the cluster (same shape as one `top_items` entry below), or `null`. | A one-line preview. |
+| `flagged_members` | How many members are flagged (see `accounts[].flagged` in the detail view); the rest are linked, not flagged. Old result files without it: treat as `size`. | "8 flagged of 10". |
 | `declared_automation` | How many members say they are automated (`accounts`), out of the cluster's size (`of`): "bot", "feed" or "RSS" in the username or display name, or "bot", "RSS", "automated" in the bio; "not a bot" does not count. `null` when no member does. **A description, not a verdict:** it never changes `confidence` or which clusters are listed, and a swarm can pose as a feed. | A neutral note such as "3 of 3 accounts say they are automated (a feed, or a swarm posing as one): check the source". Never hide or grey out the cluster for it. |
 
 `kind` is the signal that found the item: `text`, `link`, `repost`, `reply`, or `similar_text` (only when the core ran with `--similar-text`; the item is then a group of reworded copies, shown as its earliest text).
@@ -129,8 +130,8 @@ Shortened: the lists `accounts`, `edges` and `top_items` have one to two entries
 
 | Field | Meaning | Use in the UI |
 |---|---|---|
-| `accounts` | The members. `copied_share` is the share of that account's own content that it shares with the cluster. Most copied first. | The member list. |
-| `edges` | Linked account pairs. `shared` = how many separate items the two have in common; `kind` = which signal linked them. At most the 500 strongest. | The account graph. |
+| `accounts` | The members. `copied_share` is the share of that account's own content that it shares with the cluster. `flagged` is true when `copied_share` is at least `parameters.member_ratio` (0.5) times the cluster's `confidence`. An unflagged member is linked to the swarm but copies far less than it, like a real account bridged in by a few shared posts: list it apart as "linked, not flagged". Metrics count flagged members only. Most copied first. | The member list, in two groups. |
+| `edges` | Linked account pairs. `shared` = how many separate items the two have in common; `kind` = which signal linked them; `created_together` = true when the two accounts were created within `parameters.created_days` of each other and that counted as one of the `shared` items. At most the 500 strongest. | The account graph. |
 | `top_items` | The items most accounts of the cluster share, with how many (`accounts`) and when. At most 20. | The evidence list and timeline. |
 | `created_within_30_days` | How many of the cluster's accounts were created within one 30-day window (`accounts`), out of those with a creation date (`of`). `null` without creation dates. | A badge, as supporting evidence only. |
 | `declared_automation` | As in the list above. | As in the list above. |
@@ -169,7 +170,7 @@ Shortened: `by_threshold` lists six cuts in the real output; the example shows t
 }
 ```
 
-Counted per account: a flagged account is one that is in a listed cluster. `by_label` shows how many accounts of each label were flagged. The labels are only used to measure, never to train. The cut `min_confidence` is the one value chosen with the labels visible; **say so wherever these numbers are shown**.
+Counted per account: a flagged account is a **flagged member** (`accounts[].flagged`) of a listed cluster; a member that is linked but not flagged counts as not flagged. `by_label` shows how many accounts of each label were flagged. The labels are only used to measure, never to train. The cut `min_confidence` is the one value chosen with the labels visible; **say so wherever these numbers are shown**. The member rule's 0.5 (`member_ratio`) was fixed before measuring, as "at least half of what the cluster copies on average".
 
 ## Command line
 
@@ -182,7 +183,9 @@ python -m swarm COMMENTS [--profiles FILE] [--out FILE] [--min-confidence X] [--
 - Warnings go to standard error, one per line, starting with `warning: `.
 - Standard output is a short summary: one line per signal, the number of clusters, one line per cluster (id, size, confidence, and how many members say they are automated, if any), and, with labels, precision, recall and false-positive rate at the cut. If the data is synthetic, the first line says so.
 - `--out FILE` writes the full result as JSON. That file is what `RESULT_FILE` expects, and its `clusters` list is what the API calls `swarms`.
-- `--similar-text` (optional, off by default) also links accounts that post reworded copies of the same text. It needs `pip install model2vec` and downloads the multilingual model `minishlab/potion-multilingual-128M` once (512 MB; about 1.9 GB of memory while it runs). `--similar-model minishlab/potion-base-8M` uses the earlier English-only model instead (30 MB). The result lists the model in `parameters.similar_model`. It is slower (about 40 s for 80,000 distinct texts) and limited to 100,000 distinct texts. It adds a `similar_text` entry to `signals`. It is skipped, with a reason, when there are fewer than 2 distinct texts, more than 100,000, or too many near-duplicate pairs; groups of more than 200 similar texts are left out as generic.
+- `--similar-text` (optional, off by default) also links accounts that post reworded copies of the same text. It needs `model2vec` (in `requirements.txt` since 14.11 evening) and downloads the multilingual model `minishlab/potion-multilingual-128M` once (512 MB; about 1.9 GB of memory while it runs). `--similar-model minishlab/potion-base-8M` uses the earlier English-only model instead (30 MB). The result lists the model in `parameters.similar_model`. Up to 50,000 distinct texts every pair is compared; above that, random-projection hashing picks the pairs to compare (about 98.6% of the pairs at the 0.9 cut are found, nearly all closer ones; a warning says so), up to 1,000,000 distinct texts (400,000 take about a minute). A server loads the model once per process; `python -m swarm.similar download [MODEL]` fetches it ahead, for example while building an image. It adds a `similar_text` entry to `signals`. It is skipped, with a reason, when there are fewer than 2 distinct texts, more than 1,000,000, or too many near-duplicate pairs; groups of more than 200 similar texts are left out as generic.
+- `--member-ratio X` (default 0.5): a member is flagged when its copied share is at least X times its cluster's confidence; `0` flags every member, as before 14.11 evening.
+- Two accounts created within 30 days of each other (`parameters.created_days`, from `created_at` in the profiles) count one more shared item, but only on top of shared content, and only when that makes the pair's chance test stronger. In Python: `analyze(..., created_days=0)` turns it off.
 - `--ignore FILE` leaves accounts out before anything is compared: a text file with one username per line (exact match, blank lines and lines starting with `#` are skipped). Use it for feeds or staff accounts you know are legitimate. The result lists `parameters.ignored_accounts`, and a warning says how many accounts and comments were left out and how many names matched no account. An unreadable file, or a list that removes every comment, is an error. In Python: `analyze(..., ignore_path=FILE)`.
 - Links are compared after normalising: the scheme (`http` or `https`), `www.`, tracking parameters (`utm_*`, `fbclid`, `gclid`), the fragment and a trailing slash do not make two links different.
 - A bad input ends with one line `error: <what to fix>` and exit code 2, never a traceback.

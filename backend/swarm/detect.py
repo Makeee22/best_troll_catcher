@@ -11,6 +11,10 @@ MIN_SHARED = 2
 ALPHA = 0.01
 # A text of at least this many words links two accounts alone: a long text is not written twice by accident; shorter ones still need two.
 LONG_WORDS = 10
+# Two accounts created within this many days of each other count one more shared item, but only on top of shared
+# content: accounts made in one batch is the mark of a swarm that writes short, varied comments (Test R). The same
+# window as the `created_within_30_days` evidence; its chance rate is measured from the data like every other item's.
+CREATED_DAYS = 30
 # Smallest group of accounts that is a cluster.
 MIN_SIZE = 3
 # Most account-pair rows built; above it the most widely shared items are left out.
@@ -108,6 +112,25 @@ def _similar_rate(con):
         from (select key, count(*) as df, bool_or(grouped) as grouped from similar_unit group by key)""")
 
 
+def _logp(c, expected):
+    """SQL for the log of an upper bound on P(X >= c) for X ~ Poisson(expected); 0 when c is not above what is expected."""
+    return (f"(case when {expected} < {c} then {c} * ln({expected}) - {expected} - lgamma({c} + 1) "
+            f"- ln(1 - {expected} / ({c} + 1)) else 0 end)")
+
+
+def _born(con, days):
+    """Table `born` (accounts with content and a creation time) and the chance that two of them are within `days`."""
+    con.execute("""
+        create or replace temp table born as
+        select username, max(created_at) as created_at from profiles
+        where created_at is not null and username in (select distinct username from item) group by username""")
+    accounts, near = con.execute(f"""
+        select count(*), coalesce(sum(w - 1), 0) from (
+          select count(*) over (order by created_at range between interval {int(days)} days preceding
+                                and interval {int(days)} days following) as w from born)""").fetchall()[0]
+    return accounts, (near / (accounts * (accounts - 1)) if accounts >= 2 else 0.0)
+
+
 def _clusters(links, min_size):
     parent = {}
 
@@ -127,7 +150,7 @@ def _clusters(links, min_size):
 
 
 def detect(con, *, min_shared=MIN_SHARED, alpha=ALPHA, min_size=MIN_SIZE, pair_budget=PAIR_BUDGET, similar_text=False,
-           long_words=LONG_WORDS, similar_model=None):
+           long_words=LONG_WORDS, similar_model=None, created_days=CREATED_DAYS):
     warnings = []
     skipped = _skipped(con)
     fill = lambda sql: sql.replace("__WORDS__", _WORDS).replace("__LINK_KEY__", _LINK_KEY).replace("__MIN_WORDS__", str(int(MIN_WORDS)))
@@ -154,6 +177,12 @@ def detect(con, *, min_shared=MIN_SHARED, alpha=ALPHA, min_size=MIN_SIZE, pair_b
     if similar_text and con.execute("select count(*) from df where kind = 'similar_text'").fetchall()[0][0]:
         _similar_rate(con)
 
+    if created_days:
+        born_accounts, born_rate = _born(con, created_days)
+    else:
+        con.execute("create or replace temp table born (username VARCHAR, created_at TIMESTAMP)")
+        born_accounts, born_rate = 0, 0.0
+
     max_sharers = _max_sharers(con, pair_budget)
     left_out = con.execute("select count(*) from df where df > ?", [max_sharers]).fetchall()[0][0]
     if left_out:
@@ -167,24 +196,33 @@ def detect(con, *, min_shared=MIN_SHARED, alpha=ALPHA, min_size=MIN_SIZE, pair_b
         p as (select a.username as u1, b.username as u2, a.kind, count(*) as c, count(*) filter (where a.words >= ?) as long
               from shared a join shared b on a.kind = b.kind and a.key = b.key and a.username < b.username
               group by all),
-        e as (select p.*, n1.n * n2.n * s.s as expected
-              from p join n n1 on n1.username = p.u1 and n1.kind = p.kind
-                     join n n2 on n2.username = p.u2 and n2.kind = p.kind
-                     join s on s.kind = p.kind)
-        select u1, u2, kind, c, long,
-               case when expected < c
-                    then c * ln(expected) - expected - lgamma(c + 1) - ln(1 - expected / (c + 1))
-                    else 0 end as logp
-        from e""", [max_sharers, long_words or None])
+        b as (select p.*, b1.created_at is not null and b2.created_at is not null as dated,
+                     coalesce(abs(epoch(b1.created_at) - epoch(b2.created_at)) <= ? * 86400, false) as together
+              from p left join born b1 on b1.username = p.u1 left join born b2 on b2.username = p.u2),
+        e as (select b.u1, b.u2, b.kind, b.c, b.long, b.together, n1.n * n2.n * s.s as expected
+              from b join n n1 on n1.username = b.u1 and n1.kind = b.kind
+                     join n n2 on n2.username = b.u2 and n2.kind = b.kind
+                     join s on s.kind = b.kind),
+        -- Tested twice when the two were created together: on the content alone, and with the creation as one more item
+        -- whose chance is added to what is expected. The stronger counts, at twice the p-value for trying two; adding a
+        -- common event to a rare one must never weaken it (bots created in bursts make that chance large).
+        t as (select *, __LOGP__(c, expected) as alone,
+                     case when together then __LOGP__(c + 1, expected + ?) + ln(2) end as with_born from e)
+        select u1, u2, kind, case when with_born < alone then c + 1 else c end as c, long,
+               together and with_born < alone as together, least(alone, coalesce(with_born, alone)) as logp
+        from t""".replace("__LOGP__(c + 1, expected + ?)", _logp("(c + 1)", f"(expected + {float(born_rate)!r})"))
+                 .replace("__LOGP__(c, expected)", _logp("c", "expected")),
+                [max_sharers, long_words or None, created_days])
     m = con.execute("select count(*) from pair").fetchall()[0][0]
     cut = None
     if m:
         cut = con.execute("""
             select max(logp) from (select logp, row_number() over (order by logp) as k from pair where logp < 0)
             where logp <= ln(?) + ln(k) - ln(?)""", [alpha, m]).fetchall()[0][0]
-    con.execute("create or replace table link (u1 VARCHAR, u2 VARCHAR, kind VARCHAR, shared BIGINT)")
+    con.execute("create or replace table link (u1 VARCHAR, u2 VARCHAR, kind VARCHAR, shared BIGINT, created_together BOOLEAN)")
     if cut is not None:
-        con.execute("insert into link select u1, u2, kind, c from pair where (c >= ? or long >= 1) and logp <= ?", [min_shared, cut])
+        con.execute("insert into link select u1, u2, kind, c, together from pair where (c >= ? or long >= 1) and logp <= ?",
+                    [min_shared, cut])
 
     groups = _clusters(con.execute("select u1, u2 from link").fetchall(), min_size)
     con.execute("create or replace table member (username VARCHAR, cluster VARCHAR, copied_share DOUBLE)")
@@ -211,4 +249,10 @@ def detect(con, *, min_shared=MIN_SHARED, alpha=ALPHA, min_size=MIN_SIZE, pair_b
             "status": "used", "reason": None,
             "items": con.execute("select count(*) from item where kind = ?", [kind]).fetchall()[0][0],
             "links": con.execute("select count(*) from link where kind = ?", [kind]).fetchall()[0][0]}
+    if not created_days or born_accounts < 2:
+        signals["created_together"] = {"status": "skipped", "items": born_accounts, "links": 0,
+                                       "reason": "off" if not created_days else "fewer than 2 accounts with created_at in the profiles"}
+    else:
+        signals["created_together"] = {"status": "used", "reason": None, "items": born_accounts,
+                                       "links": con.execute("select count(*) from link where created_together").fetchall()[0][0]}
     return signals, warnings

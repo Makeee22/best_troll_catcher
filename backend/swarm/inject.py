@@ -125,7 +125,8 @@ def _flagged(result):
     found = {}
     for c in result["clusters"]:
         for a in c["accounts"]:
-            found[a["username"]] = max(found.get(a["username"], 0), c["confidence"])
+            if a.get("flagged", True):   # linked but not flagged members are not found
+                found[a["username"]] = max(found.get(a["username"], 0), c["confidence"])
     return found, len(result["clusters"])
 
 

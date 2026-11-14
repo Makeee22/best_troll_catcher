@@ -6,6 +6,12 @@ from .evaluate import evaluate
 from .load import InputError, close, connect, load
 
 MIN_CONFIDENCE = 0.2
+# A member is flagged only when its own copied share is at least this fraction of its cluster's confidence (the members'
+# average share); the others are linked, not flagged. Stops a real community bridged
+# into a botnet by a few links from inheriting the botnet's confidence (the Cresci subset: humans copy 0.32, the cluster
+# 0.79; docs/findings-context-dev-and-subset.md). Relative, because a fixed 0.5 drops every swarm that also posts its own
+# comments (6 copies among 16 posts is 0.375). Fixed at one half before measuring.
+MEMBER_RATIO = 0.5
 # Caps so one huge cluster cannot make the result file unusable; edge_count stays the true number.
 MAX_EDGES = 500
 MAX_ITEMS = 20
@@ -22,6 +28,10 @@ _SAYS_AUTOMATED = rf"""(regexp_matches(regexp_replace(lower(m.username || ' ' ||
                       '\b(bots?|robots?|rss|automated|autopost\w*|botti)\b'))"""
 
 
+def _flagged(share, confidence, member_ratio):
+    return share >= member_ratio * confidence
+
+
 def _created_within_30_days(dates):
     dates = sorted(dates)
     if not dates:
@@ -34,23 +44,26 @@ def _created_within_30_days(dates):
     return {"accounts": best, "of": len(dates)}
 
 
-def _clusters(con, min_confidence):
+def _clusters(con, min_confidence, member_ratio):
     ts = _TS.format
     con.execute("create or replace temp table kept as select cluster, size, confidence from cluster where confidence >= ?",
                 [min_confidence])
     out = {c: {"id": c, "size": size, "confidence": round(conf, 3), "accounts": [], "edge_count": 0, "edges": [],
                "top_items": [], "first_seen": None, "last_seen": None, "created_within_30_days": None,
-               "copy_gap_seconds": None, "declared_automation": None}
+               "copy_gap_seconds": None, "declared_automation": None, "flagged_members": 0}
            for c, size, conf in con.execute("select * from kept").fetchall()}
 
+    conf_of = {c: v["confidence"] for c, v in out.items()}
     for c, user, share in con.execute(
             "select cluster, username, copied_share from member where cluster in (select cluster from kept) "
             "order by cluster, copied_share desc, username").fetchall():
-        out[c]["accounts"].append({"username": user, "copied_share": round(share, 3)})
+        flagged = _flagged(share, conf_of[c], member_ratio)
+        out[c]["accounts"].append({"username": user, "copied_share": round(share, 3), "flagged": flagged})
+        out[c]["flagged_members"] += flagged
 
-    for c, a, b, kind, shared, total in _edges(con):
+    for c, a, b, kind, shared, together, total in _edges(con):
         out[c]["edge_count"] = total
-        out[c]["edges"].append({"source": a, "target": b, "kind": kind, "shared": shared})
+        out[c]["edges"].append({"source": a, "target": b, "kind": kind, "shared": shared, "created_together": together})
 
     con.execute("""
         create or replace temp table shared_item as
@@ -96,8 +109,8 @@ def _clusters(con, min_confidence):
 
 def _edges(con):
     return con.execute(f"""
-        select cluster, u1, u2, kind, shared, total from (
-          select m.cluster, l.u1, l.u2, l.kind, l.shared,
+        select cluster, u1, u2, kind, shared, created_together, total from (
+          select m.cluster, l.u1, l.u2, l.kind, l.shared, l.created_together,
                  count(*) over (partition by m.cluster) as total,
                  row_number() over (partition by m.cluster order by l.shared desc, l.u1, l.u2, l.kind) as rn
           from link l join member m on m.username = l.u1
@@ -128,7 +141,7 @@ def _ignore(con, path):
 
 def analyze(comments_path, profiles_path=None, *, min_confidence=MIN_CONFIDENCE, min_shared=d.MIN_SHARED,
             alpha=d.ALPHA, min_size=d.MIN_SIZE, pair_budget=d.PAIR_BUDGET, similar_text=False, ignore_path=None,
-            long_words=d.LONG_WORDS, similar_model=None):
+            long_words=d.LONG_WORDS, similar_model=None, created_days=d.CREATED_DAYS, member_ratio=MEMBER_RATIO):
     con = connect()
     try:
         warnings = load(con, comments_path, profiles_path)
@@ -137,7 +150,7 @@ def analyze(comments_path, profiles_path=None, *, min_confidence=MIN_CONFIDENCE,
             warnings += ignore_warnings
         signals, detect_warnings = d.detect(con, min_shared=min_shared, alpha=alpha, min_size=min_size,
                                             pair_budget=pair_budget, similar_text=similar_text,
-                                            long_words=long_words, similar_model=similar_model)
+                                            long_words=long_words, similar_model=similar_model, created_days=created_days)
         comments, accounts, synthetic = con.execute(
             "select count(*), count(distinct username), coalesce(bool_or(synthetic), false) from comments").fetchall()[0]
         return {
@@ -145,13 +158,13 @@ def analyze(comments_path, profiles_path=None, *, min_confidence=MIN_CONFIDENCE,
                        "profiles_file": os.path.basename(profiles_path) if profiles_path else None,
                        "comments": comments, "accounts": accounts, "synthetic": bool(synthetic)},
             "parameters": {"min_words": d.MIN_WORDS, "min_shared": min_shared, "long_words": long_words,
-                           "alpha": alpha, "min_size": min_size, "min_confidence": min_confidence,
+                           "alpha": alpha, "min_size": min_size, "min_confidence": min_confidence, "member_ratio": member_ratio, "created_days": created_days,
                            **({"similar_text": True, "similar_model": similar_model or d.similar.MODEL} if similar_text else {}),
                            **({"ignored_accounts": ignored} if ignore_path is not None else {})},
             "signals": signals,
             "warnings": warnings + detect_warnings,
-            "clusters": _clusters(con, min_confidence),
-            "metrics": evaluate(con, min_confidence),
+            "clusters": _clusters(con, min_confidence, member_ratio),
+            "metrics": evaluate(con, min_confidence, member_ratio),
         }
     finally:
         close(con)
