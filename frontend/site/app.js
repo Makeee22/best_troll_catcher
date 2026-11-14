@@ -89,10 +89,28 @@ function confidenceBar(x) {
 let details = new Map(); // swarm id -> detail object
 let loadToken = 0;       // ignore answers that belong to an older result
 
-async function showResult(listing) {
+// Where a result's details come from: the shared result, or one Reddit thread job.
+const SHARED = {
+  job: null,
+  detail: (id) => api("/api/swarms/" + encodeURIComponent(id)),
+  metrics: () => api("/api/metrics"),
+};
+let ctx = SHARED;
+
+function jobContext(job) {
+  return {
+    job,
+    detail: (id) => api("/api/jobs/" + encodeURIComponent(job.id) + "/swarms/" + encodeURIComponent(id)),
+    metrics: () => Promise.resolve(job.metrics || { source: job.listing.source, metrics: null }),
+  };
+}
+
+async function showResult(listing, context) {
   const token = ++loadToken;
+  ctx = context || SHARED;
   details = new Map();
   $("results").hidden = false;
+  renderJobBanner(ctx.job);
   renderSource(listing, null);
   renderWarnings(listing.warnings || []);
   renderSignals(listing.signals || {}, listing.parameters || {});
@@ -101,7 +119,7 @@ async function showResult(listing) {
   $("detail").replaceChildren();
   renderSwarmList(listing.swarms);
 
-  api("/api/metrics").then(
+  ctx.metrics().then(
     (m) => { if (token === loadToken) renderMetrics(m, listing.parameters || {}); },
     (e) => { if (token === loadToken) $("metrics").replaceChildren(h("p", { class: "error" }, e.message)); }
   );
@@ -109,7 +127,7 @@ async function showResult(listing) {
   try {
     const ids = listing.swarms.map((s) => s.id);
     for (let i = 0; i < ids.length; i += 6) { // a few at a time
-      const batch = await Promise.all(ids.slice(i, i + 6).map((id) => api("/api/swarms/" + encodeURIComponent(id))));
+      const batch = await Promise.all(ids.slice(i, i + 6).map((id) => ctx.detail(id)));
       if (token !== loadToken) return;
       batch.forEach((d) => details.set(d.id, d));
     }
@@ -265,7 +283,7 @@ async function selectSwarm(id, scroll) {
   if (!d) {
     $("detail").replaceChildren(h("p", { class: "muted" }, "Loading…"));
     try {
-      d = await api("/api/swarms/" + encodeURIComponent(id));
+      d = await ctx.detail(id);
     } catch (e) {
       if (token === loadToken) $("detail").replaceChildren(h("p", { class: "error" }, e.status === 404
         ? "This swarm no longer exists on the server (the data changed). Reload the page."
@@ -361,7 +379,8 @@ async function analyse(comments, profiles) {
     const listing = await api("/api/analyze", { method: "POST", body: form });
     setBusy("");
     $("status").textContent = "Showing results for " + names + ".";
-    await showResult(listing);
+    if (jobIdFromHash()) history.replaceState(null, "", location.pathname + location.search);
+    await showResult(listing, SHARED);
   } catch (e) {
     setBusy("");
     showError(e.status === 404 || e.status === 405
@@ -414,5 +433,94 @@ $("try-sample").addEventListener("click", async () => {
   }
 });
 
-// On page load: show whatever the server currently holds (the synthetic sample after a restart).
-api("/api/swarms").then(showResult, (e) => showError("Could not load the current results: " + e.message));
+// ---- Reddit thread analysis (a background job with its own link) ----
+
+const jobIdFromHash = () => (location.hash.match(/job=([\w-]{8,40})/) || [])[1] || null;
+
+function renderJobBanner(job) {
+  const el = $("job-banner");
+  if (!job) { el.hidden = true; el.replaceChildren(); return; }
+  const t = job.thread || {};
+  const missing = t.comments_expected != null && t.comments_found < t.comments_expected;
+  el.hidden = false;
+  el.replaceChildren(
+    h("p", null, h("strong", null, "Reddit thread: "), (t.subreddit || "") + " · “" + (t.title || "") + "”"),
+    h("p", { class: "muted" },
+      "Read " + t.comments_found + (t.comments_expected != null ? " of " + t.comments_expected : "") + " comments from the saved page" +
+      (missing ? " (the rest were behind “load more” when the page was saved)" : "") + ". Fetched the newest " +
+      t.history_per_commenter + " comments of " + job.histories_ok + " commenters with Context.dev" +
+      (job.histories_failed ? " (" + job.histories_failed + " could not be fetched)" : "") +
+      " in " + job.seconds + " s, " + job.credits_used + " credits."),
+    h("p", { class: "note-plain" },
+      "Private result: only people with this link can see it, and it is deleted after 3 hours. " +
+      "A swarm here is a lead to check, not proof: real people who campaign together look the same as a bot network."),
+    h("p", null, h("button", { type: "button", onclick: () => { location.hash = ""; loadShared(); } }, "Back to the shared demo")));
+}
+
+function setRedditBusy(busy) {
+  for (const id of ["reddit-file", "reddit-start"]) $(id).disabled = busy;
+}
+
+async function pollJob(id) {
+  const token = ++loadToken;
+  $("results").hidden = true;
+  showError("");
+  for (;;) {
+    let job;
+    try {
+      job = await api("/api/jobs/" + encodeURIComponent(id));
+    } catch (e) {
+      setRedditBusy(false);
+      $("reddit-status").textContent = "";
+      return showError(e.status === 404 ? "This analysis no longer exists: results are deleted after 3 hours." : e.message);
+    }
+    if (token !== loadToken) return; // the user started something else
+    const p = job.progress || {};
+    if (job.status === "collecting" || job.status === "analysing") {
+      $("reddit-status").replaceChildren(
+        h("span", null, job.stage + (job.status === "collecting" && p.total ? ": " + p.done + " / " + p.total : "") + "…"),
+        h("progress", { max: String(p.total || 1), value: String(job.status === "analysing" ? p.total || 1 : p.done || 0) }));
+      await new Promise((r) => setTimeout(r, 1500));
+      continue;
+    }
+    setRedditBusy(false);
+    $("reddit-status").textContent = "";
+    if (job.status === "failed") return showError("The analysis failed: " + job.error);
+    return showResult(job.listing, jobContext(job));
+  }
+}
+
+async function startReddit(file) {
+  showError("");
+  if (!file) return showError("Choose the saved thread page (.html) first.");
+  if (file.size > 15 * 1024 * 1024) return showError("The saved page is larger than 15 MB.");
+  setRedditBusy(true);
+  $("reddit-status").textContent = "Reading the thread…";
+  try {
+    const form = new FormData();
+    form.append("page", file, file.name);
+    const job = await api("/api/jobs/reddit", { method: "POST", body: form });
+    history.replaceState(null, "", "#job=" + job.id);
+    await pollJob(job.id);
+  } catch (e) {
+    setRedditBusy(false);
+    $("reddit-status").textContent = "";
+    showError(e.status === 404 || e.status === 405 ? "This server cannot analyse Reddit threads yet." : e.message);
+  } finally {
+    $("reddit-file").value = "";
+  }
+}
+
+$("reddit-form").addEventListener("submit", (e) => {
+  e.preventDefault();
+  startReddit($("reddit-file").files[0]);
+});
+
+function loadShared() {
+  api("/api/swarms").then((l) => showResult(l, SHARED), (e) => showError("Could not load the current results: " + e.message));
+}
+
+window.addEventListener("hashchange", () => { const id = jobIdFromHash(); if (id) { setRedditBusy(true); pollJob(id); } });
+
+// On page load: a #job= link shows that analysis; otherwise the shared result (the synthetic sample after a restart).
+if (jobIdFromHash()) { setRedditBusy(true); pollJob(jobIdFromHash()); } else { loadShared(); }

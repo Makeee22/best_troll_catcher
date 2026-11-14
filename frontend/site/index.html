@@ -17,8 +17,28 @@
 </header>
 
 <main>
+  <section class="card" aria-labelledby="reddit-h">
+    <h2 id="reddit-h">Analyse a Reddit thread</h2>
+    <ol class="steps">
+      <li>Open the thread on reddit.com and <strong>scroll to the end</strong>, so the comments load.</li>
+      <li>Save the page: <kbd>Ctrl</kbd>+<kbd>S</kbd> (Mac: <kbd>⌘</kbd>+<kbd>S</kbd>).</li>
+      <li>Choose the saved <code>.html</code> file here.</li>
+    </ol>
+    <form id="reddit-form" class="drop" novalidate>
+      <label class="single">
+        <strong>Saved thread page</strong>
+        <input id="reddit-file" type="file" accept=".html,.htm,text/html">
+      </label>
+      <button id="reddit-start" type="submit" class="primary">Analyse the thread</button>
+    </form>
+    <div id="reddit-status" class="muted progress-line" role="status"></div>
+    <p class="muted">We read the commenters from the page, fetch each one's newest public Reddit comments with
+      <strong>Context.dev</strong>, and look for accounts that act together. The result gets its own private link and is deleted after 3 hours.
+      Why save the page instead of pasting a link? Reddit shows the comments only to a browser; the page you save has them.</p>
+  </section>
+
   <section class="card" aria-labelledby="upload-h">
-    <h2 id="upload-h">Analyse your comments</h2>
+    <h2 id="upload-h">Analyse your own comments (CSV)</h2>
     <form id="upload-form" class="drop" novalidate>
       <div class="pickers">
         <label>
@@ -77,6 +97,7 @@ some_user,2026-11-01T10:00:00Z,"Text, with a comma, in quotes",</pre>
   </section>
 
   <div id="results" hidden>
+    <section id="job-banner" class="card job-banner" hidden></section>
     <section class="card" aria-labelledby="summary-h">
       <h2 id="summary-h">Summary</h2>
       <dl id="summary" class="tiles"></dl>
