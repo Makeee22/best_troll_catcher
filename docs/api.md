@@ -118,7 +118,8 @@ Shortened: the lists `accounts`, `edges` and `top_items` have one to two entries
   ],
   "first_seen": "2026-11-01T01:23:20Z",
   "last_seen": "2026-11-01T18:03:30Z",
-  "created_within_30_days": {"accounts": 3, "of": 3}
+  "created_within_30_days": {"accounts": 3, "of": 3},
+  "copy_gap_seconds": {"median": 5.0, "items": 5}
 }
 ```
 
@@ -128,6 +129,7 @@ Shortened: the lists `accounts`, `edges` and `top_items` have one to two entries
 | `edges` | Linked account pairs. `shared` = how many separate items the two have in common; `kind` = which signal linked them. At most the 500 strongest. | The account graph. |
 | `top_items` | The items most accounts of the cluster share, with how many (`accounts`) and when. At most 20. | The evidence list and timeline. |
 | `created_within_30_days` | How many of the cluster's accounts were created within one 30-day window (`accounts`), out of those with a creation date (`of`). `null` without creation dates. | A badge, as supporting evidence only. |
+| `copy_gap_seconds` | For each shared item that at least two members have a time for: the average time in seconds from one member's copy to the next. `median` is the median of those gaps, over `items` shared items. `null` when no shared item has two times. Evidence only: it never changes which clusters are listed or their `confidence`. | A line such as "copies follow each other within seconds". |
 
 ## `GET /api/metrics`
 
@@ -169,13 +171,15 @@ Counted per account: a flagged account is one that is in a listed cluster. `by_l
 For people who run the core themselves. Python 3.12+ and `pip install -r requirements.txt` in `backend/`.
 
 ```bash
-python -m swarm COMMENTS [--profiles FILE] [--out FILE] [--min-confidence X] [--similar-text]
+python -m swarm COMMENTS [--profiles FILE] [--out FILE] [--min-confidence X] [--similar-text] [--ignore FILE]
 ```
 
 - Warnings go to standard error, one per line, starting with `warning: `.
 - Standard output is a short summary: one line per signal, the number of clusters, one line per cluster (id, size, confidence), and, with labels, precision, recall and false-positive rate at the cut. If the data is synthetic, the first line says so.
 - `--out FILE` writes the full result as JSON. That file is what `RESULT_FILE` expects, and its `clusters` list is what the API calls `swarms`.
 - `--similar-text` (optional, off by default) also links accounts that post reworded copies of the same text. It needs `pip install model2vec` and downloads a small model once. It is slower (about 40 s for 80,000 distinct texts) and limited to 100,000 distinct texts. It adds a `similar_text` entry to `signals`. It is skipped, with a reason, when there are fewer than 2 distinct texts, more than 100,000, or too many near-duplicate pairs; groups of more than 200 similar texts are left out as generic.
+- `--ignore FILE` leaves accounts out before anything is compared: a text file with one username per line (exact match, blank lines and lines starting with `#` are skipped). Use it for feeds or staff accounts you know are legitimate. The result lists `parameters.ignored_accounts`, and a warning says how many accounts and comments were left out and how many names matched no account. An unreadable file, or a list that removes every comment, is an error. In Python: `analyze(..., ignore_path=FILE)`.
+- Links are compared after normalising: the scheme (`http` or `https`), `www.`, tracking parameters (`utm_*`, `fbclid`, `gclid`), the fragment and a trailing slash do not make two links different.
 - A bad input ends with one line `error: <what to fix>` and exit code 2, never a traceback.
 - `python -m swarm.synthetic DIR` writes the synthetic sample (`comments.csv`, `profiles.csv`) into `DIR`.
 - `python -m swarm.cresci SOURCE_DIR OUT_DIR` converts the Cresci 2017 dataset (research use only, never committed) to the same two files.

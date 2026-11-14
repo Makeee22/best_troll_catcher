@@ -30,7 +30,8 @@ def _clusters(con, min_confidence):
     con.execute("create or replace temp table kept as select cluster, size, confidence from cluster where confidence >= ?",
                 [min_confidence])
     out = {c: {"id": c, "size": size, "confidence": round(conf, 3), "accounts": [], "edge_count": 0, "edges": [],
-               "top_items": [], "first_seen": None, "last_seen": None, "created_within_30_days": None}
+               "top_items": [], "first_seen": None, "last_seen": None, "created_within_30_days": None,
+               "copy_gap_seconds": None}
            for c, size, conf in con.execute("select * from kept").fetchall()}
 
     for c, user, share in con.execute(
@@ -46,7 +47,10 @@ def _clusters(con, min_confidence):
         create or replace temp table shared_item as
         select m.cluster, i.kind, i.key, count(*) as accounts,
                first(i.value order by i.first_seen nulls last, i.value) as value,
-               min(i.first_seen) as first_seen, max(i.last_seen) as last_seen
+               min(i.first_seen) as first_seen, max(i.last_seen) as last_seen,
+               -- average seconds from one member's copy to the next; needs two members with a time
+               case when count(i.first_seen) >= 2
+                    then (epoch(max(i.first_seen)) - epoch(min(i.first_seen))) / (count(i.first_seen) - 1) end as gap
         from item i join member m using (username)
         where m.cluster in (select cluster from kept)
         group by m.cluster, i.kind, i.key
@@ -60,6 +64,10 @@ def _clusters(con, min_confidence):
               from shared_item)
             where rn <= {MAX_ITEMS} order by cluster, rn""").fetchall():
         out[c]["top_items"].append({"kind": kind, "value": value, "accounts": accounts, "first_seen": first, "last_seen": last})
+
+    for c, median, items in con.execute(
+            "select cluster, round(median(gap), 1), count(gap) from shared_item where gap is not null group by cluster").fetchall():
+        out[c]["copy_gap_seconds"] = {"median": median, "items": items}
 
     dates = {}
     for c, created in con.execute(

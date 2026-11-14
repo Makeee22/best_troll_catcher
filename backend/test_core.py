@@ -16,7 +16,7 @@ def test_result_document(tmp_path):
     assert result["metrics"]["at_min_confidence"]["precision"] == 0.8125
     swarm = result["clusters"][1]
     assert set(swarm) == {"id", "size", "confidence", "accounts", "edge_count", "edges", "top_items",
-                          "first_seen", "last_seen", "created_within_30_days"}
+                          "first_seen", "last_seen", "created_within_30_days", "copy_gap_seconds"}
     assert swarm["confidence"] == 0.375 and swarm["edge_count"] == 28 and len(swarm["edges"]) == 28
     assert swarm["accounts"][0] == {"username": "troll_0_0", "copied_share": 0.375}
     assert swarm["edges"][0].keys() == {"source", "target", "kind", "shared"}
@@ -48,6 +48,32 @@ def test_ignore_list_that_removes_everything_is_an_input_error(tmp_path, make_cs
         analyze(comments, ignore_path=str(ignore))
     with pytest.raises(InputError, match="cannot read the ignore list"):
         analyze(comments, ignore_path=str(tmp_path / "nope.txt"))
+
+
+def _copy_rows(with_times):
+    """Three accounts copy two texts: the first one 10 s apart, the second 30 s apart."""
+    rows = []
+    for text, start, step in (("the plan for the first item is ready now", 36000, 10),
+                              ("the plan for the second item is ready now", 43200, 30)):
+        for k, user in enumerate(("s0", "s1", "s2")):
+            t = start + k * step
+            row = {"username": user, "text": text}
+            if with_times:
+                row["timestamp"] = f"2026-11-01T{t // 3600:02d}:{t % 3600 // 60:02d}:{t % 60:02d}Z"
+            rows.append(row)
+    return rows + [{"username": f"bg{a}", "text": f"bg{a} wrote note number {i} about today"}
+                   for a in range(30) for i in range(3)]
+
+
+def test_copy_gap_is_the_median_time_between_copies(tmp_path, make_csv):
+    result = analyze(make_csv(tmp_path, "c.csv", _copy_rows(True)), min_confidence=0)
+    assert [a["username"] for a in result["clusters"][0]["accounts"]] == ["s0", "s1", "s2"]
+    assert result["clusters"][0]["copy_gap_seconds"] == {"median": 20.0, "items": 2}   # gaps of 10 s and 30 s
+
+
+def test_copy_gap_is_null_without_timestamps(tmp_path, make_csv):
+    result = analyze(make_csv(tmp_path, "c.csv", _copy_rows(False)), min_confidence=0)
+    assert len(result["clusters"]) == 1 and result["clusters"][0]["copy_gap_seconds"] is None
 
 
 def test_without_profiles(tmp_path):
