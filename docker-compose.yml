@@ -1,0 +1,23 @@
+# The live site: http://<server>/  (deploy steps: deploy/README.md)
+#
+#   web  nginx: the static dashboard, and a proxy for /api/ and /health -> api:8000
+#   api  right now the MOCK in frontend/mock (real detection code, plus CSV upload)
+#
+# To run the real backend/ instead of the mock:
+#   docker compose -f docker-compose.yml -f deploy/docker-compose.backend.yml up -d --build
+services:
+  web:
+    build: ./frontend
+    ports:
+      - "80:80"
+    depends_on:
+      - api
+    restart: unless-stopped
+
+  api:
+    build:
+      context: .                          # repo root: the mock copies backend/swarm in
+      dockerfile: frontend/mock/Dockerfile
+    expose:
+      - "8000"
+    restart: unless-stopped
