@@ -58,6 +58,27 @@ def test_reworded_swarm_is_found_with_the_layer(tmp_path):
     assert signals["similar_text"]["status"] == "used" and signals["similar_text"]["items"] > 0
 
 
+@needs_model2vec
+def test_a_reworded_swarm_is_found_when_its_copies_are_the_only_near_duplicates(tmp_path, make_csv):
+    # every other text is unique, so the chance rate must come from all texts, not from the swarm's own groups
+    variants = [("the council voted to close the old library on main street next spring",
+                 "the council has voted to close the old library on main street next spring"),
+                ("our mayor is lying to you about the new bridge and its real cost",
+                 "our mayor keeps lying to you about the new bridge and its real cost"),
+                ("share this before they delete it from every page on the internet today",
+                 "share this now before they delete it from every page on the internet")]
+    rows = [{"username": u, "text": v[k % 2]} for v in variants for k, u in enumerate("abc")]
+    words = ("river garden coffee winter summer train ticket music movie dinner cousin weekend market bakery "
+             "school teacher forest beach cloud rain snow bicycle kitchen window letter").split()
+    rng = random.Random(0)
+    rows += [{"username": u, "text": " ".join(rng.sample(words, 8))} for u in [*"abc"] + [f"bg{k}" for k in range(40)]
+             for _ in range(10)]
+    con = connect()
+    load(con, make_csv(tmp_path, "c.csv", rows))
+    detect(con, similar_text=True)
+    assert clusters(con) == [{"a", "b", "c"}]
+
+
 def _similar_item_count(tmp_path, make_csv, rows, threshold=0.5):
     con = connect()
     load(con, make_csv(tmp_path, "c.csv", rows))

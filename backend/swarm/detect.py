@@ -90,6 +90,24 @@ def _max_sharers(con, pair_budget):
     return best
 
 
+def _similar_rate(con):
+    """N and S of `similar_text` over all of each account's texts, not only those with a near-duplicate.
+
+    Counting only grouped texts lets a swarm whose copies are the only near-duplicates set its own chance rate.
+    A text without a group is one unit of its own; S counts only pairs of units in the same group.
+    """
+    con.execute("""
+        create or replace temp table similar_unit as
+        select distinct i.username, coalesce(g.gkey, i.key) as key, g.gkey is not null as grouped
+        from item i left join text_group g using (key) where i.kind = 'text'""")
+    con.execute("delete from n where kind = 'similar_text'")
+    con.execute("insert into n select username, 'similar_text', count(*) from similar_unit group by username")
+    con.execute("delete from s where kind = 'similar_text'")
+    con.execute("""
+        insert into s select 'similar_text', sum(df::double * (df - 1) * grouped::int) / nullif(sum(df)::double * (sum(df) - 1), 0)
+        from (select key, count(*) as df, bool_or(grouped) as grouped from similar_unit group by key)""")
+
+
 def _clusters(links, min_size):
     parent = {}
 
@@ -133,6 +151,8 @@ def detect(con, *, min_shared=MIN_SHARED, alpha=ALPHA, min_size=MIN_SIZE, pair_b
     # chance that two different posts of one kind are the same item (unbiased: a post never matches itself)
     con.execute("create or replace table s as select kind, sum(df::double * (df - 1)) / nullif(sum(df)::double * (sum(df) - 1), 0) as s "
                 "from df group by kind")
+    if similar_text and con.execute("select count(*) from item where kind = 'similar_text'").fetchall()[0][0]:
+        _similar_rate(con)
 
     max_sharers = _max_sharers(con, pair_budget)
     left_out = con.execute("select count(*) from df where df > ?", [max_sharers]).fetchall()[0][0]
