@@ -1,4 +1,4 @@
-"""Context.dev client for the website: fetches Reddit users' recent comments.
+"""Context.dev client for the website: Reddit users' recent comments, and public JSON endpoints (fetch_json).
 
 Server-side only. The API key comes from the environment (CONTEXT_DEV_API_KEY, set in the
 server's .env); it is never logged or returned to the browser.
@@ -10,6 +10,7 @@ server's .env); it is never logged or returned to the browser.
 Uses the prebuilt parser "reddit-user" of POST /v1/web/scrape (docs.context.dev/scrape/prebuilt-parsers).
 Plain urllib, so the image needs no new dependency.
 """
+import base64
 import json
 import os
 import re
@@ -18,9 +19,11 @@ import time
 import urllib.error
 import urllib.request
 from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import TimeoutError as FutureTimeout
 
 API = "https://api.context.dev/v1/web/scrape"
 USERNAME = re.compile(r"^[A-Za-z0-9_-]{3,20}$")      # Reddit's own rule for usernames
+JSON_TIMEOUT = 10     # seconds to wait for Context.dev in fetch_json before asking the site directly
 SKIP = {"[deleted]", "automoderator", "deleted"}
 
 
@@ -39,20 +42,25 @@ class ContextDev:
         self._lock = threading.Lock()
         self.credits_used = 0
         self.credits_remaining = None
+        self._json_pool = ThreadPoolExecutor(max_workers=self.workers * 4, thread_name_prefix="contextdev-json")
+        self.rate_limited = 0            # 429 answers so far (each one is waited out and retried)
 
     @classmethod
     def from_env(cls):
         return cls(os.environ.get("CONTEXT_DEV_API_KEY", "").strip(),
                    workers=int(os.environ.get("CONTEXT_DEV_WORKERS", "2")))
 
-    def _post(self, body):
-        """POST with retries on 429 (concurrency or per-minute limit) and on network errors."""
+    def _post(self, body, timeout=None, patient=True):
+        """POST with retries on 429 (concurrency or per-minute limit) and on network errors.
+
+        patient=False: give up at the first timeout or 5xx (for callers that have another way to get the data).
+        """
         data = json.dumps(body).encode()
         for attempt in range(6):
             req = urllib.request.Request(API, data=data, method="POST", headers={
                 "Authorization": f"Bearer {self._key}", "Content-Type": "application/json"})
             try:
-                with urllib.request.urlopen(req, timeout=self.timeout) as r:
+                with urllib.request.urlopen(req, timeout=timeout or self.timeout) as r:
                     out = json.load(r)
                 meta = out.get("key_metadata") or {}
                 with self._lock:
@@ -67,23 +75,52 @@ class ContextDev:
                     err = {}
                 code = err.get("error_code") or ""
                 if e.code == 429:
+                    with self._lock:
+                        self.rate_limited += 1
+                    if not patient and attempt >= 1:
+                        return {"_http_error": 429, "_error_code": "RATE_LIMITED", "_message": "rate limited"}
                     wait = float(e.headers.get("Retry-After") or (err.get("error_data") or {}).get("retry_after_seconds") or 2)
-                    time.sleep(min(60, wait) + attempt)
+                    time.sleep((min(60, wait) if patient else min(3, wait)) + attempt)
                     continue
                 if e.code == 402 or (e.code == 401 and code == "USAGE_EXCEEDED"):
                     raise ContextDevError("Context.dev credits have run out.") from None
                 if e.code == 401:
                     raise ContextDevError("Context.dev rejected the API key.") from None
-                if e.code >= 500 and attempt < 2:
+                if e.code >= 500 and attempt < 2 and patient:
                     time.sleep(2)
                     continue
                 return {"_http_error": e.code, "_error_code": code, "_message": err.get("message")}
-            except (urllib.error.URLError, TimeoutError):
-                if attempt < 2:
+            except (urllib.error.URLError, TimeoutError, OSError):
+                if attempt < 2 and patient:
                     time.sleep(2)
                     continue
                 return {"_http_error": 0, "_error_code": "NETWORK", "_message": "no answer from Context.dev"}
         return {"_http_error": 429, "_error_code": "RATE_LIMITED", "_message": "still rate limited after retries"}
+
+    def fetch_json(self, url):
+        """A public JSON endpoint fetched through Context.dev: the original response body (formats.bytes).
+
+        Falls back to a direct request when Context.dev cannot give it (an error, no credits, a body
+        that is not a JSON object), so a collector of public data keeps working.
+        Returns (data, via) where via is "context.dev" or "direct". Raises ContextDevError when both fail.
+        """
+        # Mostly under a second, but now and then a request hangs for a minute or more: give it a deadline
+        # on their side (timeoutOpts) and a hard one here, then ask the site itself.
+        body = {"url": url, "formats": {"bytes": True}, "maxAgeMs": 600000, "timeoutOpts": {"milliseconds": JSON_TIMEOUT * 1000}}
+        future = self._json_pool.submit(self._post, body, JSON_TIMEOUT + 2, False)
+        try:
+            out = future.result(timeout=JSON_TIMEOUT + 3)
+        except (ContextDevError, FutureTimeout):
+            out = {"_http_error": 408}
+        body = ((out.get("bytes") or {}).get("data") or {}) if out.get("_http_error") is None else {}
+        if isinstance(body, dict) and body.get("base64"):
+            try:
+                data = json.loads(base64.b64decode(body["base64"]).decode("utf-8"))
+                if isinstance(data, dict) and not ("error" in data and "message" in data):
+                    return data, "context.dev"
+            except ValueError:
+                pass
+        return _direct_json(url), "direct"
 
     def reddit_history(self, username, limit=25):
         """One user's newest comments (and account data). Returns a dict with 'status'."""
@@ -131,6 +168,25 @@ class ContextDev:
                 if on_progress:
                     on_progress(done, len(names))
         return results
+
+
+def _direct_json(url, timeout=30):
+    """Plain GET of a public, login-free JSON endpoint (fallback only)."""
+    req = urllib.request.Request(url, headers={"User-Agent": "spot-the-swarm (Junction 2026 hackathon)", "Accept": "application/json"})
+    for attempt in range(3):
+        try:
+            with urllib.request.urlopen(req, timeout=timeout) as r:
+                return json.load(r)
+        except urllib.error.HTTPError as e:
+            if e.code in (429, 502, 503) and attempt < 2:
+                time.sleep(2 + attempt * 2)
+                continue
+            raise ContextDevError(f"The site answered {e.code} for {url.split('?')[0]}") from None
+        except (urllib.error.URLError, TimeoutError):
+            if attempt < 2:
+                time.sleep(2)
+                continue
+            raise ContextDevError(f"No answer from {url.split('?')[0]}") from None
 
 
 def to_rows(histories, thread_comments=()):
