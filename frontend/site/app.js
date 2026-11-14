@@ -64,8 +64,12 @@ const fmtPct = (x) => (x == null ? "n/a" : (x * 100).toFixed(1) + " %");
 const fmtInt = (n) => (typeof n === "number" ? n.toLocaleString("en-GB") : "n/a");
 const fmtConf = (x) => (typeof x === "number" ? x.toFixed(2) : "n/a");
 const KIND = { text: "Same text", link: "Same link", repost: "Reposted the same comment",
-               reply: "Replied to the same comment", similar_text: "Nearly the same text" };
+               reply: "Replied to the same comment", similar_text: "Nearly the same text",
+               created_together: "Created close together (accounts; adds to links above, never links alone)" };
 const kindName = (k) => KIND[k] || String(k);
+// docs/api.md: a member is flagged when its own copied share is high enough; the others are linked, not accused.
+// Results made before 14.11 evening have no "flagged" field: every member counted as flagged then.
+const isFlagged = (a) => a.flagged !== false;
 
 function showError(message) {
   $("error").textContent = message;
@@ -146,7 +150,7 @@ async function showResult(listing, context) {
   renderFlagged(listing.swarms, listing.parameters || {});
 }
 
-const countFlagged = () => new Set([...details.values()].flatMap((d) => d.accounts.map((a) => a.username))).size;
+const countFlagged = () => new Set([...details.values()].flatMap((d) => d.accounts.filter(isFlagged).map((a) => a.username))).size;
 
 function renderSource(listing, flagged) {
   const src = listing.source || {};
@@ -200,15 +204,19 @@ function renderFlagged(swarms, params) {
   }
   const all = [];
   const groups = swarms.map((s, i) => {
-    const accounts = details.get(s.id).accounts;
+    const members = details.get(s.id).accounts;
+    const accounts = members.filter(isFlagged);
+    const linked = members.length - accounts.length;
     all.push(...accounts.map((a) => a.username));
     return h("div", { class: "group" },
       h("div", { class: "group-head" },
-        h("strong", null, "Swarm " + (i + 1) + ": " + accounts.length + " accounts"),
+        h("strong", null, "Swarm " + (i + 1) + ": " + accounts.length + " flagged" + (linked ? " of " + members.length + " accounts" : " accounts")),
         confidenceBar(s.confidence),
         h("button", { type: "button", onclick: () => selectSwarm(s.id, true) }, "Show evidence")),
       h("ul", { class: "chips" }, accounts.map((a) =>
-        h("li", { title: "shares " + fmtPct(a.copied_share) + " of its own content with this group" }, a.username))));
+        h("li", { title: "shares " + fmtPct(a.copied_share) + " of its own content with this group" }, a.username))),
+      linked ? h("p", { class: "muted" }, linked + (linked === 1 ? " more account is" : " more accounts are") +
+        " linked to this group but copy far less than it; they are not flagged (see the evidence).") : null);
   });
   const copy = h("button", { type: "button", onclick: async () => {
     try { await navigator.clipboard.writeText(all.join("\n")); copy.textContent = "Copied"; }
@@ -276,7 +284,8 @@ function renderSwarmList(swarms) {
                   onclick: () => selectSwarm(s.id, false) },
       h("span", { class: "swarm-head" },
         h("strong", null, "Swarm " + (i + 1)),
-        h("span", null, s.size + " accounts · " + fmtInt(s.edge_count) + " linked pairs"),
+        h("span", null, (s.flagged_members != null && s.flagged_members < s.size ? s.flagged_members + " flagged of " : "") +
+          s.size + " accounts · " + fmtInt(s.edge_count) + " linked pairs"),
         confidenceBar(s.confidence)),
       s.sample ? h("span", { class: "sample" }, kindName(s.sample.kind) + ", " + s.sample.accounts + " accounts: “" + s.sample.value + "”") : null,
       s.declared_automation ? h("span", { class: "sample" }, automationNote(s.declared_automation)) : null)));
@@ -408,10 +417,14 @@ function renderDetail(d) {
     h("h3", null, "What they share most"),
     renderItems(d.top_items || []),
     h("h3", null, "Members"),
+    memberNote(d),
     h("div", { class: "scroll" }, h("table", null,
-      h("thead", null, h("tr", null, h("th", null, "Account"), h("th", { class: "num" }, "Own content shared with the group"))),
-      h("tbody", null, d.accounts.map((a) => h("tr", null,
-        h("td", null, a.username), h("td", { class: "num" }, fmtPct(a.copied_share))))))),
+      h("thead", null, h("tr", null, h("th", null, "Account"), h("th", { class: "num" }, "Own content shared with the group"),
+        h("th", null, "Flagged"))),
+      h("tbody", null, [...d.accounts.filter(isFlagged), ...d.accounts.filter((a) => !isFlagged(a))].map((a) =>
+        h("tr", isFlagged(a) ? null : { class: "linked" },
+          h("td", null, a.username), h("td", { class: "num" }, fmtPct(a.copied_share)),
+          h("td", null, isFlagged(a) ? "yes" : "no, only linked")))))),
     h("h3", null, "Who is linked to whom"),
     names.length <= 24 ? renderGraph(names, edges) : h("p", { class: "muted" }, "Too many accounts for the picture; see the table."),
     h("div", { class: "scroll" }, h("table", null,
@@ -423,6 +436,13 @@ function renderDetail(d) {
     d.edge_count > shownEdges.length
       ? h("p", { class: "muted" }, "Showing the " + shownEdges.length + " strongest of " + fmtInt(d.edge_count) + " linked pairs.")
       : null);
+}
+
+function memberNote(d) {
+  const flagged = d.accounts.filter(isFlagged).length, linked = d.accounts.length - flagged;
+  if (!linked) return null;
+  return h("p", { class: "muted" }, flagged + " of " + d.accounts.length + " members are flagged. The other " + linked +
+    " are linked to the group by a few shared items but copy far less than it (their own copied share is under half the group's confidence), like a real account that shared one of its posts: they are not accused.");
 }
 
 function renderItems(items) {
@@ -563,6 +583,16 @@ function bannerLines(job) {
         ". Fetched the newest " + t.history_per_commenter + " posts, replies and reposts of " + fmtInt(job.histories_ok) +
         (t.commenters_fetched < t.commenters ? " of " + fmtInt(t.commenters) : "") + " participants" + failed +
         (t.reposts != null ? ", " + fmtInt(t.reposts) + " reposts among them" : "") + ", " + how + cost),
+    ];
+  }
+  if (t.platform !== "Reddit") {
+    return [
+      h("p", null, h("strong", null, (t.platform || "Discussion") + ": "), t.title ? "“" + t.title + "”" : (t.url || "")),
+      h("p", { class: "muted" },
+        "Read " + fmtInt(t.comments_found) + (t.comments_expected != null ? " of " + fmtInt(t.comments_expected) : "") +
+        " comments" + (t.commenters != null ? " from " + fmtInt(t.commenters) + " participants" : "") +
+        (t.history_per_commenter ? ". Fetched the newest " + t.history_per_commenter + " posts of " + fmtInt(job.histories_ok) + " participants" + failed : "") +
+        cost),
     ];
   }
   const missing = t.comments_expected != null && t.comments_found < t.comments_expected;

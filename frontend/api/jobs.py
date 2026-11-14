@@ -7,8 +7,9 @@ POST /api/jobs/reddit                 multipart "page": a Reddit thread page sav
 GET  /api/jobs/{id}                   status, progress, and when done the listing (same shape as GET /api/swarms)
 GET  /api/jobs/{id}/swarms/{swarm}    one cluster, same shape as GET /api/swarms/{id}
 
-Steps: collect the discussion and each participant's recent public history (bluesky.py; for Reddit
-reddit_html.py + contextdev.py), then run swarm.core.analyze() on thread + histories.
+Steps for a link: the backend's collector (swarm.collect: Bluesky, Reddit, Hacker News, review sites) fetches the
+discussion and each participant's recent public history, then swarm.collect.analyse() converts and runs the core with
+the similar-text signal. A saved Reddit page still goes through contextdev.py + swarm.convert here.
 
 Privacy: results stay in memory only, for JOB_TTL seconds, and are reachable only by the job id
 (not listed anywhere, not shown to other visitors). Nothing is written to disk except the
@@ -29,8 +30,9 @@ from pydantic import BaseModel
 import bluesky
 import contextdev
 import reddit_html    # only for the thread's title and subreddit; comments come from the backend's converter
+from swarm import collect as swarm_collect
 from swarm.convert import ConvertError, convert as convert_bundle
-from swarm.load import COMMENT_COLUMNS, PROFILE_COLUMNS
+from swarm.load import COMMENT_COLUMNS, InputError, PROFILE_COLUMNS
 
 MAX_PAGE_BYTES = 15 * 1024 * 1024
 HISTORY = 25          # newest comments per commenter (B11: ~15; 25 for margin, 1 credit each either way)
@@ -76,7 +78,8 @@ def _public(job):
             "swarms": [{"id": c["id"], "size": c["size"], "confidence": c["confidence"], "edge_count": c["edge_count"],
                         "first_seen": c["first_seen"], "last_seen": c["last_seen"],
                         "sample": c["top_items"][0] if c["top_items"] else None,
-                        "declared_automation": c.get("declared_automation")}   # same shape as backend/swarm/api.py
+                        "declared_automation": c.get("declared_automation"),
+                        "flagged_members": c.get("flagged_members", c["size"])}   # same shape as backend/swarm/api.py
                        for c in r["clusters"]],
         }
         out["metrics"] = {"source": r["source"], "metrics": r["metrics"]}
@@ -216,7 +219,13 @@ def _run(job, collect, analyze, analysis_lock):
             _write_csv(cpath, comments, _fields(COMMENT_FIELDS, comments))
             _write_csv(ppath, profiles, _fields(PROFILE_FIELDS, profiles))
             with analysis_lock:
-                result = analyze(str(cpath), str(ppath) if profiles else None)
+                try:
+                    result = analyze(str(cpath), str(ppath) if profiles else None, similar_text=True)
+                except InputError as e:   # the similar-text model is missing: still worth a run without it
+                    if "similar-text" not in str(e):
+                        raise
+                    notes = notes + [f"similar-text signal skipped: {e}"]
+                    result = analyze(str(cpath), str(ppath) if profiles else None)
         result["source"]["comments_file"] = comments_label
         result["source"]["profiles_file"] = profiles_label
         result["warnings"] = notes + list(result.get("warnings") or [])
@@ -225,6 +234,49 @@ def _run(job, collect, analyze, analysis_lock):
     except (contextdev.ContextDevError, bluesky.NotABlueskyPost) as e:
         job["status"], job["error"] = "failed", str(e)
     except Exception as e:  # the core's InputError and anything unexpected: show a short message, keep the server up
+        job["status"], job["error"] = "failed", f"The analysis failed: {type(e).__name__}: {str(e)[:300]}"
+    finally:
+        job["seconds"] = round(time.time() - t0, 1)
+
+
+_collector = None
+
+
+def _run_link(job, url, analysis_lock):
+    """A link through the backend's collector (docs/collect-interface.md, "Switching the site")."""
+    global _collector
+    t0 = time.time()
+    try:
+        if _collector is None:
+            _collector = swarm_collect.ContextDev.from_env()
+        job["stage"] = "Reading the thread"
+
+        def progress(done, total):
+            job["progress"] = {"done": done, "total": total}
+            job["stage"] = f"Fetching the recent posts of {total} participants"
+
+        history = BLUESKY_HISTORY if bluesky.is_bluesky(url) else HISTORY
+        before = _collector.credits_used
+        try:
+            bundle = swarm_collect.collect(url, history=history, max_participants=MAX_PARTICIPANTS,
+                                           on_progress=progress, client=_collector)
+        finally:
+            job["credits_used"] = _collector.credits_used - before
+        t, cov = bundle.get("thread") or {}, bundle.get("coverage") or {}
+        job["thread"] = {**job["thread"], **t, "comments_found": cov.get("comments_found"),
+                         "comments_expected": cov.get("comments_expected")}
+        job["histories_ok"], job["histories_failed"] = t.get("histories_ok") or 0, t.get("histories_failed") or 0
+        job["status"], job["stage"] = "analysing", "Looking for accounts that act together"
+        with analysis_lock, tempfile.TemporaryDirectory(prefix="swarm-job-") as work:
+            try:
+                result = swarm_collect.analyse(bundle, work, similar_text=True)
+            except (ConvertError, InputError) as e:    # e.g. a thread with no comments
+                raise swarm_collect.CollectError(str(e)) from None
+        job["result"] = result
+        job["status"], job["stage"] = "done", "Done"
+    except swarm_collect.CollectError as e:
+        job["status"], job["error"] = "failed", str(e)
+    except Exception as e:  # anything unexpected: show a short message, keep the server up
         job["status"], job["error"] = "failed", f"The analysis failed: {type(e).__name__}: {str(e)[:300]}"
     finally:
         job["seconds"] = round(time.time() - t0, 1)
@@ -248,7 +300,10 @@ def _start(thread, total, collect, analyze, analysis_lock):
             "error": None, "credits_used": 0, "histories_ok": 0, "histories_failed": 0, "seconds": None, "result": None,
         }
         _jobs[job["id"]] = job
-    threading.Thread(target=_run, args=(job, collect, analyze, analysis_lock), daemon=True).start()
+    if isinstance(collect, str):     # a link: the backend's collector does collect + convert + analyse
+        threading.Thread(target=_run_link, args=(job, collect, analysis_lock), daemon=True).start()
+    else:
+        threading.Thread(target=_run, args=(job, collect, analyze, analysis_lock), daemon=True).start()
     return _public(job)
 
 
@@ -259,23 +314,19 @@ def register(app, analyze, analysis_lock):
         url = body.url.strip()
         if len(url) > 500 or any(c.isspace() for c in url):
             raise HTTPException(400, "That does not look like a link.")
-        if REDDIT_LINK.match(url):
-            if not re.search(r"/comments/[A-Za-z0-9]+", url):
-                raise HTTPException(400, "Give the link of one Reddit thread: https://www.reddit.com/r/NAME/comments/ID/...")
-            if not url.lower().startswith("http"):
-                url = "https://" + url
-            thread = {"platform": "Reddit", "url": url, "title": None, "comments_found": None, "comments_expected": None,
-                      "commenters": None, "history_per_commenter": HISTORY}
-            return _start(thread, 0, lambda job, client: _collect_reddit_url(job, client, url), analyze, analysis_lock)
-        if not bluesky.is_bluesky(url):
-            if re.match(r"^(?:https?://)?(?:www\.)?bsky\.app(?:/|$)", url, re.I):
-                raise HTTPException(400, "Give the link of one Bluesky post: https://bsky.app/profile/NAME/post/ID.")
-            raise HTTPException(400, "This site is not supported yet (Bluesky post links, Reddit thread links and saved Reddit pages work now).")
+        if REDDIT_LINK.match(url) and not re.search(r"/comments/[A-Za-z0-9]+", url):
+            raise HTTPException(400, "Give the link of one Reddit thread: https://www.reddit.com/r/NAME/comments/ID/...")
+        if re.match(r"^(?:https?://)?(?:www\.)?bsky\.app(?:/|$)", url, re.I) and not bluesky.is_bluesky(url):
+            raise HTTPException(400, "Give the link of one Bluesky post: https://bsky.app/profile/NAME/post/ID.")
         if not url.lower().startswith("http"):
             url = "https://" + url
-        thread = {"platform": "Bluesky", "url": url, "title": None, "comments_found": None, "comments_expected": None,
-                  "commenters": None, "history_per_commenter": BLUESKY_HISTORY}
-        return _start(thread, 0, lambda job, client: _collect_bluesky(job, client, url), analyze, analysis_lock)
+        if not any(mod.matches(url) for _, mod in swarm_collect.SITES):
+            raise HTTPException(400, "This site is not supported yet. Links that work: a Bluesky post, a Reddit thread, "
+                                     "a Hacker News story, or a review page (Google Maps, App Store, Google Play, Tripadvisor, Yelp, G2, TikTok).")
+        platform = "Bluesky" if bluesky.is_bluesky(url) else "Reddit" if REDDIT_LINK.match(url) else None
+        thread = {"platform": platform, "url": url, "title": None, "comments_found": None, "comments_expected": None,
+                  "commenters": None, "history_per_commenter": BLUESKY_HISTORY if platform == "Bluesky" else HISTORY}
+        return _start(thread, 0, url, analyze, analysis_lock)
 
     @app.post("/api/jobs/reddit", status_code=202)
     def start_reddit_job(page: UploadFile = File(...)):

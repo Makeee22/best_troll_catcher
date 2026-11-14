@@ -20,20 +20,20 @@
   <section class="card" aria-labelledby="url-h">
     <h2 id="url-h">Analyse a discussion from a link</h2>
     <form id="url-form" class="link-form" novalidate>
-      <label for="url-input"><strong>Link to a post or thread</strong> <span class="muted">(Bluesky and Reddit work now)</span></label>
+      <label for="url-input"><strong>Link to a post or thread</strong> <span class="muted">(Bluesky, Reddit, Hacker News, review pages)</span></label>
       <div class="link-row">
         <input id="url-input" type="url" inputmode="url" autocomplete="off" spellcheck="false"
-               placeholder="https://bsky.app/profile/name/post/…  or  https://www.reddit.com/r/name/comments/…">
+               placeholder="https://bsky.app/profile/name/post/…  or  https://www.reddit.com/r/name/comments/…  or  https://news.ycombinator.com/item?id=…">
         <button id="url-start" type="submit" class="primary">Analyse the discussion</button>
       </div>
     </form>
     <div id="url-status" class="muted progress-line" role="status"></div>
     <div id="url-error" class="error" role="alert" hidden></div>
-    <p class="muted">Paste the link of a <strong>Bluesky</strong> post or a <strong>Reddit</strong> thread. Through <strong>Context.dev</strong> we read
+    <p class="muted">Paste the link of a <strong>Bluesky</strong> post, a <strong>Reddit</strong> thread or a <strong>Hacker News</strong> story (review pages on Google Maps, App Store, Google Play, Tripadvisor, Yelp, G2 and TikTok are read too, without histories). Through <strong>Context.dev</strong> we read
       the discussion and every participant's newest public posts (on Bluesky also replies and reposts), then look for accounts that act together.
       Only public data, no login. The result gets its own private link and is deleted after 3 hours. A swarm is a lead to check, not proof.
-      Bluesky gives the whole thread; Reddit gives the comments a browser sees before “load more” (about 25). For more Reddit comments,
-      click “View more comments” and use the saved-page card below. Other sites are not supported yet.</p>
+      Bluesky and Hacker News give the whole thread; Reddit gives the comments a browser sees before “load more” (about 25). For more Reddit comments,
+      click “View more comments” and use the saved-page card below. Reworded copies are found too (similar-text signal).</p>
   </section>
 
   <section class="card" aria-labelledby="reddit-h">

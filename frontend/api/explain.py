@@ -105,6 +105,12 @@ def build_evidence(cluster, source):
     shares = sorted((a.get("copied_share") or 0) for a in cluster.get("accounts") or [])
     if shares:
         lines.append(f"F1: members' own copied share: lowest {shares[0]:.2f}, median {shares[len(shares) // 2]:.2f}, highest {shares[-1]:.2f}")
+    accounts = cluster.get("accounts") or []
+    flagged = sum(1 for a in accounts if a.get("flagged", True))
+    if accounts:
+        lines.append(f"F6: {flagged} of {len(accounts)} members are flagged (own copied share at least half the group's confidence); "
+                     + (f"the other {len(accounts) - flagged} are only linked by a few shared items and are NOT flagged, "
+                        "so describe them as linked, never as part of the swarm's behaviour" if flagged < len(accounts) else "all are flagged"))
     gap = cluster.get("copy_gap_seconds")
     if gap:
         lines.append(f"F2: copies follow each other after a median of {gap['median']:.0f} seconds (over {gap['items']} shared items)")
