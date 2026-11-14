@@ -173,3 +173,58 @@ def test_a_tiny_pair_budget_warns_instead_of_failing(tmp_path):
     load(con, *write(str(tmp_path)))
     signals, warnings = detect(con, pair_budget=10)
     assert any("budget" in w.lower() for w in warnings)
+
+
+def _with_profiles(tmp_path, make_csv, rows, created):
+    con = connect()
+    load(con, make_csv(tmp_path, "c.csv", rows), make_csv(tmp_path, "p.csv", [{"username": u, "created_at": t} for u, t in created.items()]))
+    signals, _ = detect(con)
+    return con, signals
+
+
+def _old_dates(accounts):
+    """Creation dates spread over ten years, about 30 days apart: nobody else is born together."""
+    from datetime import date, timedelta
+    return {u: (date(2012, 1, 1) + timedelta(days=37 * k)).isoformat() + "T00:00:00Z" for k, u in enumerate(accounts)}
+
+
+def test_one_shared_short_text_links_accounts_created_together(tmp_path, make_csv):
+    # Test R: a swarm pastes short stock phrases and its accounts were made in one batch; one phrase alone links nobody
+    rows = trio(7)
+    created = _old_dates(sorted({r["username"] for r in rows} - set("abc")))
+    created.update({"a": "2026-10-01T00:00:00Z", "b": "2026-10-05T00:00:00Z", "c": "2026-10-20T00:00:00Z"})
+    con, signals = _with_profiles(tmp_path, make_csv, rows, created)
+    assert clusters(con) == [{"a", "b", "c"}]
+    assert signals["created_together"]["status"] == "used" and signals["created_together"]["links"] == 3
+    assert con.execute("select bool_and(created_together) from link").fetchall()[0][0] is True
+
+
+def test_created_together_alone_links_nobody_and_old_spread_accounts_stay_unlinked(tmp_path, make_csv):
+    rows = trio(7)
+    accounts = sorted({r["username"] for r in rows})
+    con, _ = _with_profiles(tmp_path, make_csv, rows, _old_dates(accounts))   # a, b, c share the phrase but not a birth month
+    assert clusters(con) == []
+    batch = unique("x", 5) + unique("y", 5) + unique("z", 5) + background(300, 20)   # born together, share nothing
+    created = _old_dates(sorted({r["username"] for r in batch} - set("xyz")))
+    created.update({"x": "2026-10-01T00:00:00Z", "y": "2026-10-02T00:00:00Z", "z": "2026-10-03T00:00:00Z"})
+    (tmp_path / "b").mkdir()
+    con, _ = _with_profiles(tmp_path / "b", make_csv, batch, created)
+    assert clusters(con) == []
+
+
+def test_a_month_when_everyone_was_created_proves_little(tmp_path, make_csv):
+    # every account born in the same month: being born together is no surprise, so one phrase still links nobody
+    rows = trio(7)
+    created = {u: "2026-10-01T00:00:00Z" for u in {r["username"] for r in rows}}
+    con, signals = _with_profiles(tmp_path, make_csv, rows, created)
+    assert clusters(con) == [] and signals["created_together"]["items"] == 303
+
+
+def test_created_together_can_be_switched_off(tmp_path, make_csv):
+    rows = trio(7)
+    created = _old_dates(sorted({r["username"] for r in rows} - set("abc")))
+    created.update({"a": "2026-10-01T00:00:00Z", "b": "2026-10-05T00:00:00Z", "c": "2026-10-20T00:00:00Z"})
+    con = connect()
+    load(con, make_csv(tmp_path, "c.csv", rows), make_csv(tmp_path, "p.csv", [{"username": u, "created_at": t} for u, t in created.items()]))
+    signals, _ = detect(con, created_days=0)
+    assert clusters(con) == [] and signals["created_together"]["status"] == "skipped"

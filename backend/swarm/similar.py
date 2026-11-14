@@ -1,4 +1,10 @@
-"""Optional signal: texts that are nearly the same (reworded copies) become one shared item."""
+"""Optional signal: texts that are nearly the same (reworded copies) become one shared item.
+
+    python -m swarm.similar download [MODEL]   # fetch the model once, e.g. while building a server image
+"""
+import functools
+import sys
+
 from .load import InputError
 
 ENGLISH_MODEL = "minishlab/potion-base-8M"  # 30 MB
@@ -15,6 +21,13 @@ MAX_GROUP = 200
 BLOCK = 1000
 
 
+@functools.lru_cache(maxsize=2)
+def _model(name):
+    """The loaded model, kept for the life of the process: a server loads it once, not once per analysis."""
+    from model2vec import StaticModel
+    return StaticModel.from_pretrained(name)
+
+
 def add_items(con, model=None, threshold=THRESHOLD, max_texts=MAX_TEXTS, max_pairs=MAX_PAIRS, max_group=MAX_GROUP):
     """Add rows of kind `similar_text` to `item`. Needs the table `text_norm(key, norm)` made by detect.
 
@@ -28,12 +41,12 @@ def add_items(con, model=None, threshold=THRESHOLD, max_texts=MAX_TEXTS, max_pai
         return f"{count:,} distinct texts is more than the limit of {max_texts:,}", []
     try:  # optional dependencies: the rest of the core must import without them
         import numpy as np
-        from model2vec import StaticModel
+        import model2vec  # noqa: F401
     except ImportError:
         raise InputError("the similar-text signal needs the model2vec package: pip install model2vec") from None
     keys, norms = zip(*con.execute("select key, norm from text_norm order by key").fetchall())
     try:
-        vectors = StaticModel.from_pretrained(model).encode(list(norms)).astype(np.float32)
+        vectors = _model(model).encode(list(norms)).astype(np.float32)
     except Exception as e:  # download or load failure: offline, unknown model name, disk full
         raise InputError(f"cannot load the similar-text model {model}: {str(e).splitlines()[0][:200] if str(e) else type(e).__name__}") from None
     lengths = np.linalg.norm(vectors, axis=1, keepdims=True)
@@ -86,3 +99,11 @@ def add_items(con, model=None, threshold=THRESHOLD, max_texts=MAX_TEXTS, max_pai
             where i.kind = 'text'
             group by i.username, g.gkey""")
     return None, warnings
+
+
+if __name__ == "__main__":
+    if len(sys.argv) < 2 or sys.argv[1] != "download":
+        sys.exit("usage: python -m swarm.similar download [MODEL]")
+    name = sys.argv[2] if len(sys.argv) > 2 else MODEL
+    _model(name)
+    print(f"model {name} is in the local cache")

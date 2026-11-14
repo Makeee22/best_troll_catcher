@@ -12,15 +12,17 @@ def test_result_document(tmp_path):
     assert result["source"] == {"comments_file": "comments.csv", "profiles_file": "profiles.csv",
                                 "comments": 5773, "accounts": 256, "synthetic": True}
     assert result["parameters"] == {"min_words": 5, "min_shared": 2, "long_words": 10, "alpha": 0.01, "min_size": 3,
-                                    "min_confidence": 0.2}
+                                    "min_confidence": 0.2, "member_ratio": 0.5, "created_days": 30}
     assert [c["size"] for c in result["clusters"]] == [3, 8, 5]            # feeds at 1.0, then the swarms
     assert result["metrics"]["at_min_confidence"]["precision"] == 0.8125
     swarm = result["clusters"][1]
     assert set(swarm) == {"id", "size", "confidence", "accounts", "edge_count", "edges", "top_items",
-                          "first_seen", "last_seen", "created_within_30_days", "copy_gap_seconds", "declared_automation"}
+                          "first_seen", "last_seen", "created_within_30_days", "copy_gap_seconds", "declared_automation",
+                          "flagged_members"}
     assert swarm["confidence"] == 0.375 and swarm["edge_count"] == 28 and len(swarm["edges"]) == 28
-    assert swarm["accounts"][0] == {"username": "troll_0_0", "copied_share": 0.375}
-    assert swarm["edges"][0].keys() == {"source", "target", "kind", "shared"}
+    assert swarm["accounts"][0] == {"username": "troll_0_0", "copied_share": 0.375, "flagged": True}
+    assert swarm["flagged_members"] == swarm["size"]
+    assert swarm["edges"][0].keys() == {"source", "target", "kind", "shared", "created_together"}
     assert len(swarm["top_items"]) == 6 and swarm["top_items"][0]["accounts"] == 8
     assert swarm["top_items"][0]["kind"] == "text" and swarm["top_items"][0]["first_seen"].endswith("Z")
     assert swarm["created_within_30_days"] == {"accounts": 8, "of": 8}
@@ -125,3 +127,19 @@ def test_analyze_removes_its_temporary_database(tmp_path):
     before = set(glob.glob(f"{tempfile.gettempdir()}/swarm-*"))
     analyze(*write(str(tmp_path)))
     assert set(glob.glob(f"{tempfile.gettempdir()}/swarm-*")) == before
+
+
+def test_a_member_that_copies_far_less_than_its_cluster_is_linked_not_flagged(tmp_path, make_csv):
+    # the Cresci subset trap: a few links bridge a real account into a swarm; it must not inherit the swarm's confidence
+    from test_detect import background, shared, unique
+    rows = shared("abc", 6) + shared("ad", 2, tag="other") + unique("d", 30) + background(200, 10)
+    profiles = make_csv(tmp_path, "p.csv", [{"username": u, "label": "bot" if u in "abc" else "human"}
+                                            for u in sorted({r["username"] for r in rows})])
+    result = analyze(make_csv(tmp_path, "c.csv", rows), profiles)
+    [swarm] = result["clusters"]
+    flags = {a["username"]: a["flagged"] for a in swarm["accounts"]}
+    assert flags == {"a": True, "b": True, "c": True, "d": False} and swarm["flagged_members"] == 3
+    m = result["metrics"]["at_min_confidence"]
+    assert (m["true_positives"], m["false_positives"]) == (3, 0)
+    every = analyze(make_csv(tmp_path, "c.csv", rows), profiles, member_ratio=0)
+    assert every["metrics"]["at_min_confidence"]["false_positives"] == 1

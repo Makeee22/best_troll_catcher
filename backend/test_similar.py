@@ -153,6 +153,8 @@ def test_model_failure_is_an_input_error_not_a_traceback(tmp_path, monkeypatch):
         raise OSError("no network")
     import model2vec
     monkeypatch.setattr(model2vec.StaticModel, "from_pretrained", fail)
+    from swarm import similar
+    similar._model.cache_clear()   # a model loaded by an earlier test would hide the failure
     con = connect()
     load(con, *write(str(tmp_path), reworded=True))
     with pytest.raises(InputError, match="no network"):

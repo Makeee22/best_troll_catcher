@@ -6,7 +6,7 @@ def _ratio(a, b):
 
 
 def _counts(accounts, cut):
-    """accounts: (is_bot, confidence or None) pairs. Flagged = in a cluster with confidence >= cut."""
+    """accounts: (is_bot, confidence or None) pairs. Flagged = a flagged member of a cluster with confidence >= cut."""
     tp = sum(1 for bot, c in accounts if bot and c is not None and c >= cut)
     fp = sum(1 for bot, c in accounts if not bot and c is not None and c >= cut)
     fn = sum(1 for bot, c in accounts if bot and (c is None or c < cut))
@@ -16,14 +16,19 @@ def _counts(accounts, cut):
             "false_positive_rate": _ratio(fp, fp + tn)}
 
 
-def evaluate(con, min_confidence):
-    """Metrics from the profiles' label column, or None when no profile has a label."""
+def evaluate(con, min_confidence, member_ratio=0):
+    """Metrics from the profiles' label column, or None when no profile has a label.
+
+    A member whose own copied share is under `member_ratio` times its cluster's confidence is linked but not flagged.
+    Every cut in `by_threshold` uses the same members; only the confidence cut varies.
+    """
     rows = con.execute("""
-        select p.label, exists (select 1 from item i where i.username = p.username) as has_content, c.confidence
+        select p.label, exists (select 1 from item i where i.username = p.username) as has_content,
+               case when m.copied_share >= ? * c.confidence then c.confidence end as confidence
         from profiles p
         left join member m on m.username = p.username
         left join cluster c on c.cluster = m.cluster
-        where p.label is not null""").fetchall()
+        where p.label is not null""", [member_ratio]).fetchall()
     if not rows:
         return None
     with_content = [(label, conf) for label, has, conf in rows if has]
