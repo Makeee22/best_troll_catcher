@@ -127,6 +127,7 @@ Record every evaluation run here: date and time, dataset, variant, precision, re
 |---|---|---|---|---|---|---|
 | 14.11 00:30 | **Synthetic** sample (216 accounts, 13 in two simulated swarms) | first skeleton (same text within 60 s) | 0.81 | 1.00 | 0.015 | First version. The 3 false positives are the simulated benign news feeds: timing and text reuse cannot tell them from a swarm. Shows the code works, says nothing about real data. |
 | 14.11 02:20 | Cresci 2017 (10,159 accounts with content: 1,083 human, 9,076 bot) | **design measurement**, throwaway scripts, not the product code | 1.000 | 0.73 | 0.000 | The method in `docs/core-design.md`. Bots found per family: social 1 95%, social 2 100%, social 3 95%, traditional 47%, fake followers 41%. Without the confidence cut: precision 0.978, 14.1% of humans flagged. **The cut 0.2 was chosen with these labels visible, so this row is optimistic.** These bots copy text word for word; a swarm that rewords would do worse. |
+| 14.11 10:35 | Cresci 2017 (10,159 labelled accounts with content: 1,083 human, 9,076 bot; 6,637,615 comments) | **core, rules only** (product code, `python -m swarm`) | 1.000 | 0.726 | 0.000 | First run of the real core, 49 s on the laptop. Bots flagged per family: social 1 95.3%, social 2 99.5%, social 3 94.6%, traditional 46.9%, fake followers 41.0%. Without the confidence cut: precision 0.978, 14.1% of humans flagged; at 0.05: precision 0.9994, 0.4% of humans. Matches the design measurement. **The cut 0.2 was chosen with these labels visible.** |
 
 ## Status by role
 
