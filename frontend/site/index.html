@@ -3,17 +3,18 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="color-scheme" content="light dark">
+  <meta name="color-scheme" content="light">
   <title>Spot the swarm</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Mochiy+Pop+One&family=Zen+Maru+Gothic:wght@500;700;900&display=swap">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=VT323&family=Work+Sans:wght@400;500;600;700&display=swap">
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
 <header class="top">
   <div class="brand">
     <h1><span class="logo" aria-hidden="true"><i></i><i></i><i></i></span>Spot the swarm</h1>
+    <p class="loading" aria-hidden="true">scanning for swarms...</p>
     <p class="tagline">Paste a discussion. See which accounts act as one, with the evidence, never a verdict.</p>
   </div>
   <div class="powered" aria-label="Built with">
@@ -26,7 +27,8 @@
 </header>
 
 <main>
-  <section class="card input-card" aria-label="Start an analysis">
+  <section class="card input-card" aria-labelledby="start-h">
+    <h2 id="start-h">New analysis</h2>
     <div class="tabs" role="tablist">
       <button type="button" role="tab" id="tab-link" aria-controls="pane-link" aria-selected="true">Link</button>
       <button type="button" role="tab" id="tab-reddit" aria-controls="pane-reddit" aria-selected="false">Saved Reddit page</button>

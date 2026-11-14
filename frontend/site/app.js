@@ -21,6 +21,12 @@ function h(tag, props, ...children) {
   return el;
 }
 
+// replaceChildren(null) would insert the text "null"; drop empty parts like h() does (optional parts are written as `x ? node : null`).
+const nativeReplace = Element.prototype.replaceChildren;
+Element.prototype.replaceChildren = function (...children) {
+  return nativeReplace.apply(this, children.flat().filter((c) => c != null && c !== false));
+};
+
 function svg(tag, attrs, ...children) {
   const el = document.createElementNS("http://www.w3.org/2000/svg", tag);
   for (const [key, value] of Object.entries(attrs || {})) el.setAttribute(key, value);
@@ -162,7 +168,7 @@ async function showResult(listing, context) {
 
 // ---- colours per swarm (same colour on the map, in the list and in the graph) ----
 let swarmOrder = [];
-const PALETTE = ["#ff5cb8", "#4fb8ff", "#a77bff", "#3fd39a", "#ffb13d", "#ff7a7a", "#28c7c7", "#8c9bff"];
+const PALETTE = ["#a98ce0", "#5fd9b8", "#f2e15a", "#ff8fc8", "#7fb2ff", "#ffaa66", "#b8e86a", "#d08cf0"];
 const swarmColor = (id) => PALETTE[Math.max(0, swarmOrder.indexOf(id)) % PALETTE.length];
 
 // ---- the swarm map: every swarm as a cluster of dots (phyllotaxis), one dot per account ----
