@@ -1,6 +1,8 @@
 # Test A: does the core find bots in one conversation?
 
-Written 14.11.2026 by the front-end + infrastructure role (Makeee22). Ran the core of `main` at `65e1ed1`, unchanged.
+Written 14.11.2026 by the front-end + infrastructure role (Makeee22). First run on the core of `main` at `65e1ed1`; **rerun on `73def06`** (after the long-text rule), see [Rerun after the long-text rule](#rerun-after-the-long-text-rule-73def06). The core was run unchanged both times.
+
+**In short (rerun):** with 3–5 comments per account the core now finds 28–73% of the bots at precision 1.000 and no false positives. With 10–20 comments per account in the same window recall falls back to 0–5%: the chance test stops passing when a large botnet is active at the same time.
 
 ## Question
 
@@ -16,7 +18,7 @@ So: how much of the recall is left when each account has only a few comments?
 - Each cut ran through `swarm.core.analyze(comments, profiles)` with the default settings (cut 0.2, rules only, no similar-text layer). Labels were read only to measure.
 - Traditional spambots and fake followers are not active in these windows, so only the three social botnets take part.
 
-## Results
+## Results (first run, `65e1ed1`, before the long-text rule)
 
 Precision / recall / false-positive rate at the default cut 0.2, counted per account.
 
@@ -50,7 +52,7 @@ Recall per bot family, for the rows that found anything:
 
 At the lower cut 0.05 the picture is the same: recall stays at or below 0.052 for every row with 20 or fewer comments per account.
 
-## Findings
+## Findings (first run)
 
 1. **With 20 or fewer comments per account, the core finds almost no bots: recall 0–2.6%.** With 1, 3 or 5 comments per account it finds nothing at all, in any window.
 2. **It fails safe.** It does not flag humans instead: the false-positive rate stays at or below 1.5%, and most rows flag nobody. The single cluster at 30 days / 20 per account is a false positive (FPR 0.013).
@@ -73,6 +75,43 @@ The core works on **account histories**, not on **one conversation**. That clash
 3. **Keep the target and say the limit out loud** in the pitch, with this table. Judges weigh honesty about false positives and limits.
 
 Whatever is chosen, this table belongs in the pitch next to the 0.726: it shows exactly where the method works and where it does not.
+
+## Rerun after the long-text rule (`73def06`)
+
+Same data, same cuts, same script; the only change is the core (one shared text of at least 10 words can now link a pair, plus the other commits up to `73def06`).
+
+| Comments per account | 1 day: recall (P / FPR) | 7 days: recall (P / FPR) | 30 days: recall (P / FPR) | First run, all windows |
+|---|---|---|---|---|
+| 1 | 0.006 (1.000 / 0.000) | 0.008 (1.000 / 0.000) | 0.008 (1.000 / 0.000) | 0.000 |
+| **3** | **0.280** (1.000 / 0.000) | **0.321** (1.000 / 0.000) | **0.316** (1.000 / 0.000) | 0.000 |
+| **5** | **0.647** (1.000 / 0.000) | **0.729** (1.000 / 0.000) | **0.717** (1.000 / 0.000) | 0.000 |
+| **10** | **0.000** | **0.026** (0.925 / 0.004) | **0.025** (0.841 / 0.009) | 0.000–0.026 |
+| **20** | **0.000** | **0.000** | **0.000** (1 false-positive cluster, FPR 0.013) | 0.000 |
+| all in window | 0.000 | 0.280 (0.976 / 0.015) | 0.421 (1.000 / 0.000) | same |
+
+Recall per family at 5 comments, 7 days: social 1 71%, social 2 0% (14 accounts), social 3 79%.
+
+### Why more comments find fewer bots
+
+Run at confidence 0 for the 7-day window, so the cut plays no part:
+
+| Comments per account | Text items | Linked pairs (text) | Largest clusters (accounts) | Recall at confidence ≥ 0 |
+|---|---|---|---|---|
+| 5 | 8,483 | **1,606** | 538, 333, 16 | 0.740 |
+| 10 | 16,707 | **118** | 5, 5, 4 | 0.052 |
+| 20 | 32,395 | **64** | 6, 5, 4 | 0.027 |
+
+The drop is in the **chance test**, not the confidence cut: with 10 or 20 comments per account it passes 118 and 64 pairs instead of 1,606. With more comments, the botnet's own copies make each shared text common, so no pair looks surprising any more. This is the known limit in `docs/core-design.md` ("Big swarms hide small evidence"), now measured: in this window the effect is large enough to hide a 538-account botnet completely.
+
+**Why this differs from the 0.778 in `PLAN.md` (Cresci thinned to 10 comments per account):** that test picks 10 comments by hash from each account's **whole history**, so a botnet's copies are spread over years and rarely pile up. Test A takes the comments of **one window**, so the botnet's campaigns overlap, as they would in one conversation or one news cycle. Both are honest measurements of different situations; the window is closer to the product's use case.
+
+### What it means
+
+- **The long-text rule is a big step**: a conversation-sized sample (3–5 comments per account) now finds most of these bots, with no false positives.
+- **More data must not hide a swarm.** A large, active botnet is exactly what the tool should find, and it is the case where recall falls to zero. For the backend owner to decide; ideas: limit the weight of items shared by very many accounts in the test, run the test per signal or per item size, or treat a large group sharing many long texts as evidence on its own.
+- Until that is fixed, the result depends on how much data is fed in. In the product that matters for the "conversation → participants → histories" pipeline: fetching longer histories can make the result worse, not better.
+
+The diagnosis used `analyze(..., min_confidence=0)` on the 7-day cuts; the code is in the same throwaway script as the rest of this test.
 
 ## Reproduce
 
