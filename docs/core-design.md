@@ -97,7 +97,7 @@ Two CSV files with a header row. Column names are matched without regard to case
 | Column | Used for | If missing |
 |---|---|---|
 | `username` | Joining to comments. **Required in this file.** | The file is ignored with a warning. |
-| `created_at` | Evidence line: how many of a cluster's accounts were created within 30 days of each other | The line is left out. |
+| `created_at` | Evidence line (how many of a cluster's accounts were created within 30 days of each other) and one more item in the chance test (see "Created together") | The line and the item are left out. |
 | `label` | Measuring. `human`, `bot`, or `bot:<family>`. Anything not starting with `bot` counts as not a bot. | No metrics. |
 | `display_name`, `bio`, `followers`, `following`, `post_count`, `default_avatar`, `verified`, `location`, `ip_hash`, `user_agent_hash`, `email_domain` | Accepted, not used yet | Nothing. |
 
@@ -126,6 +126,10 @@ Without `username` there are no accounts to group. Without any of the four conte
 8. **Confidence** of a cluster: for each member, the share of its items that another member also has; then the average over members. A cluster is reported when its confidence is at least 0.2.
 
 Exact formulas are in `docs/core-plan.md`, task 3.
+
+**Created together.** Two accounts created within 30 days of each other (both need `created_at`) count as one more shared item, but only on top of shared content: creation alone never links anyone. The chance of it is measured from the data like every other item's. A pair created together is tested twice, on its content alone and with the creation added as one more item; the stronger test counts, and the second carries a Bonferroni factor 2 (so for such pairs the false-positive rate can reach 1.5 times the nominal one). Adding the creation to every dated pair came first and weakened strong text pairs on a labelled run, which is why the test runs both ways. In the result it shows as `edges[].created_together` and the `created_together` entry of `signals` (accounts counted, and links it made stronger; those links are also counted under their content kind).
+
+**Member flags.** A cluster's members are not equally part of the swarm: a real community bridged into a botnet by a few links would inherit the botnet's confidence. A member is **flagged** when its own copied share is at least `member_ratio` (default 0.5) times the cluster's unrounded confidence; the others stay in the cluster as linked, not flagged. The result has `accounts[].flagged` and `flagged_members` per cluster, and the metrics count only flagged members. The value 0.5 was not tuned on labels; a fixed cut of 0.5 was tried first and dropped after a labelled run (`PLAN.md`, Results).
 
 ### Parameters
 
@@ -224,7 +228,7 @@ Catches copies that were reworded. A static embedding model (model2vec, runs on 
   - on hand-written Finnish texts, unrelated pairs score at most 0.43 with it and 0.73 with the English model.
 - **Rewording with synonyms is still missed.** Three Finnish rewordings that swap words for synonyms score 0.79–0.85 with the multilingual model, under the 0.9 cut. The English model scores them 0.88–0.95 (two over the cut) because it rewards shared letters, the same reason it joins ten times more unrelated texts. A cut of 0.8 would catch them, but it chains the synthetic sample's texts into one group of over 200, which is then left out, so the cut stays at 0.9.
 - **Its chance rate counts all texts.** `N` is each account's number of distinct texts (a group of similar texts counts once) and `S` the chance that two of them fall in the same group. Until 14.11 both were computed among grouped texts only, so a swarm whose copies were the only near-duplicates set its own rate (`S` = 0.05 in a small test) and was not found; a test now covers that case.
-- Compares all distinct texts with each other, so it is limited to 100,000 distinct texts. Above that it is skipped with a warning.
+- Up to 50,000 distinct texts every pair is compared; above that random-projection hashing picks the pairs to compare (about 98.6% of the pairs at the 0.9 cut, nearly all closer ones; a warning says so), up to 1,000,000 distinct texts. Above that, or with too many near-duplicate pairs, the signal is skipped with a reason.
 - Cresci's bots copy word for word, so its benefit there is zero by construction.
 
 It is the last task in the build plan and the first to cut.

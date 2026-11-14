@@ -24,7 +24,7 @@ result, bundle = run(url, similar_text=True, history=25)    # collect -> swarm.c
 - `on_progress(done, total)` is called after each history. `client` defaults to `ContextDev.from_env()` (key `CONTEXT_DEV_API_KEY`, never logged or put in a bundle). Hacker News and Bluesky work **without a key**: Hacker News always asks Algolia directly, Bluesky tries Context.dev first when there is a key and falls back to the public API (as `bluesky.py` did), or goes straight to it without one.
 - Besides `url`, `site`, `collected_at`, `pages`, `coverage` and `credits_used` (and `credits_remaining` when Context.dev reported it), the bundle has a `thread` summary: `platform`, `label`, `title`, `post_id`, `commenters`, `commenters_fetched`, `history_per_commenter`, `histories_ok`, `histories_failed` (and site extras such as `via`, the number of requests per route). The converter ignores it; the front end can show it.
 - `run` writes the two CSV files to a temporary directory, so a result's `source.comments_file` is a label such as `Bluesky thread at://did:plc:…/app.bsky.feed.post/…` or `Hacker News story 38519012`, and `warnings` start with the coverage and converter notes. `profiles.csv` is absent when the site gave no profile data.
-- Errors are `CollectError` (a `ValueError`) with a message for the user: unsupported site, post not found or not public, no key for a site that needs one, credits ran out. The command line prints it as one `error: …` line with exit code 2.
+- Errors are `CollectError` (a `ValueError`) with a message for the user: unsupported site, post not found or not public, no key for a site that needs one, credits ran out, a site that answers with something other than JSON. `collect()` and `run()` raise nothing else (`run()` turns a thread without comments or unusable data into a `CollectError`); `analyse()` called on its own may also raise `ConvertError` or `InputError`. `history` is clamped to 1–100 and `max_participants` to at least 1. If the similar-text model cannot be loaded (no download yet, no network), `run()` and `analyse()` repeat the analysis without that signal and add a warning. The command line prints it as one `error: …` line with exit code 2.
 - Retry, timeout, 2 concurrent requests (`CONTEXT_DEV_WORKERS`) and the credit accounting are those of `frontend/api/contextdev.py`.
 
 ```bash
@@ -49,7 +49,7 @@ Done 14.11 evening: the site's Reddit jobs already call the backend's converter 
 
 ### How to call the converter (for the front end)
 
-On `main` since 14.11 evening. What it reads (schema.org markup follows):
+On `main` since 14.11 evening. What it reads (schema.org `Comment` / `Review` markup in a saved page too, `swarm/schemaorg.py`):
 
 | Source | Put in the bundle as |
 |---|---|
