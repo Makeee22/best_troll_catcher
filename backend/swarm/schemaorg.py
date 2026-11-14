@@ -4,8 +4,10 @@ Standard library only; the HTML and JSON are untrusted and are parsed, never exe
 Both markups are turned into one tree of dicts (JSON-LD as written, microdata as nested items),
 and one iterative walk finds the comments in it.
 """
+import hashlib
 import json
 import re
+from collections import Counter
 from html.parser import HTMLParser
 
 from .sites import MAX_COMMENTS
@@ -14,6 +16,7 @@ VOID = {"area", "base", "br", "col", "embed", "hr", "img", "input", "link", "met
 VALUE_ATTR = {"a": "href", "area": "href", "link": "href", "meta": "content", "time": "datetime", "data": "value",
               "meter": "value", "img": "src", "source": "src", "audio": "src", "video": "src", "iframe": "src", "embed": "src"}
 TEXT_FIELDS = ("text", "reviewBody", "articleBody", "description")
+MAX_TEXT_PROPS = 32  # nested text-collecting elements; deeper ones are not collected (every text chunk goes to each open one)
 POSTS = {"DiscussionForumPosting", "Question"}  # the opening post: a row too when it has text, but not the parent of the comments
 
 
@@ -50,6 +53,7 @@ class _Page(HTMLParser):
         self.roots = []      # top-level microdata items, in document order
         self.stack = []      # open elements: [tag, owner scope, prop names, value from an attribute, text parts or None]
         self.bufs = []       # the stack frames that collect text
+        self.open = Counter()  # open elements per tag name: a stray end tag is rejected without scanning the stack
         self.scopes = []     # open item scopes, innermost last: (stack depth, item dict)
         self.script = None   # the open script or style tag: [tag, parts or None (not JSON-LD)]
 
@@ -58,7 +62,7 @@ class _Page(HTMLParser):
             return
         a = {k: v or "" for k, v in attrs}
         if tag in ("script", "style"):
-            self.script = [tag, [] if tag == "script" and a.get("type", "").lower() == "application/ld+json" else None]
+            self.script = [tag, [] if tag == "script" and a.get("type", "").strip().lower().startswith("application/ld+json") else None]
             return
         if tag in ("p", "li", "br"):
             for f in self.bufs:
@@ -79,10 +83,11 @@ class _Page(HTMLParser):
                 for name in props:
                     _add(owner, name, a.get(VALUE_ATTR.get(tag, ""), ""))
             return
-        collects = bool(props) and "itemscope" not in a
+        collects = bool(props) and "itemscope" not in a and len(self.bufs) < MAX_TEXT_PROPS
         frame = [tag, owner, props if collects else [], a.get(VALUE_ATTR.get(tag, ""), None) if collects else None,
                  [] if collects else None]
         self.stack.append(frame)
+        self.open[tag] += 1
         if collects:
             self.bufs.append(frame)
 
@@ -93,7 +98,9 @@ class _Page(HTMLParser):
                     self.blocks.append("".join(self.script[1]))
                 self.script = None
             return
-        for i in range(len(self.stack) - 1, -1, -1):  # an end tag with no open match is ignored; unclosed tags inside it close with it
+        if not self.open[tag]:  # an end tag with no open match is ignored
+            return
+        for i in range(len(self.stack) - 1, -1, -1):  # unclosed tags inside the match close with it
             if self.stack[i][0] == tag:
                 while len(self.stack) > i:
                     self._close()
@@ -101,6 +108,7 @@ class _Page(HTMLParser):
 
     def _close(self):
         frame = self.stack.pop()
+        self.open[frame[0]] -= 1
         while self.scopes and self.scopes[-1][0] >= len(self.stack):
             self.scopes.pop()
         if frame[4] is not None:
@@ -145,10 +153,11 @@ def _found(roots):
             stack.extend((n, parent, thread) for n in reversed(node))
         elif isinstance(node, dict):
             kinds = _types(node)
-            comment = _is_comment(kinds)
+            boiler = bool({"Answer", "Question"}.intersection(kinds)) and not _has_author(node)  # FAQPage answers are the site's own text
+            comment = _is_comment(kinds) and not boiler
             if node.get("@type") and not comment:  # the enclosing post, article or product names the thread
                 thread = _s(node.get("@id")) or _s(node.get("url")) or thread
-            if comment or (POSTS.intersection(kinds) and _field(node, TEXT_FIELDS[:3])):
+            if comment or (not boiler and POSTS.intersection(kinds) and _field(node, TEXT_FIELDS[:3])):
                 if len(out) >= MAX_COMMENTS:
                     break
                 out.append((node, parent, thread))
@@ -162,6 +171,14 @@ def _field(node, keys):
     return next((v for v in (_s(_first(node.get(k))) for k in keys) if v), "")
 
 
+def _has_author(node):
+    """A named author who is not an Organization."""
+    a = _first(node.get("author"))
+    if isinstance(a, dict):
+        return "Organization" not in _types(a) and bool(_field(a, ("url", "identifier", "name")))
+    return bool(_s(a))
+
+
 def _author(node):
     a = _first(node.get("author"))
     if isinstance(a, dict):
@@ -169,16 +186,22 @@ def _author(node):
     return _s(a), _s(a)
 
 
-def _rows(found, page_url):
-    rows, ids, seen = [], [], set()
+def _rows(found, page_url, salt):
+    rows, ids, first = [], [], {}
     for i, (node, parent, thread) in enumerate(found):
         cid = _field(node, ("@id", "url", "identifier"))
-        if not cid or cid in seen:  # reviews that all carry the page's url must stay apart
-            cid = f"sx{i}"
-        seen.add(cid)
-        ids.append(cid)
         username, display_name = _author(node)
-        rows.append({"comment_id": cid, "username": username, "display_name": display_name, "text": _field(node, TEXT_FIELDS),
+        text = _field(node, TEXT_FIELDS)
+        if cid in first:
+            if first[cid] == (username, text):  # the same comment reached twice (nested and in @graph, or a repeated block)
+                ids.append(cid)
+                continue
+            cid = ""  # reviews that all carry the page's url must stay apart
+        if not cid:
+            cid = f"sx{salt}-{i}"  # the salt keeps ids of different pages (and frames) apart, so merge does not drop them
+        first[cid] = (username, text)
+        ids.append(cid)
+        rows.append({"comment_id": cid, "username": username, "display_name": display_name, "text": text,
                      "timestamp": _field(node, ("dateCreated", "datePublished")), "parent_id": ids[parent] if parent >= 0 else "",
                      "thread_id": thread or page_url, "source": "thread", "links": "", "repost_of": ""})
     return rows
@@ -186,16 +209,17 @@ def _rows(found, page_url):
 
 def from_html(html, page_url):
     """Comment rows from the JSON-LD and microdata of a saved page; [] when it has none."""
-    if not isinstance(html, str) or ("ld+json" not in html and "itemscope" not in html):
+    if not isinstance(html, str) or not re.search(r"ld\+json|itemscope", html, re.I):
         return []
     page = _Page()
     page.feed(html)
     page.close()
     roots = []
-    for block in page.blocks:
+    for block in dict.fromkeys(page.blocks):  # a block repeated verbatim is the same markup
         try:
             roots.append(json.loads(block))
         except (ValueError, RecursionError):  # one bad block must not hide the others
             continue
     # a page that carries both markups (Discourse does) describes the same posts twice: JSON-LD wins
-    return _rows(_found(roots) or _found(page.roots), page_url)
+    salt = hashlib.blake2s(f"{page_url}\0{html}".encode("utf-8", "replace"), digest_size=4).hexdigest()
+    return _rows(_found(roots) or _found(page.roots), page_url, salt)

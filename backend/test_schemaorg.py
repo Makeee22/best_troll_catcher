@@ -1,4 +1,5 @@
 import json
+import time
 
 from swarm import schemaorg
 from swarm.convert import convert
@@ -30,10 +31,11 @@ FORUM = json.dumps({
 def test_json_ld_forum_posting_with_nested_reply():
     rows = schemaorg.from_html(ld(FORUM), URL)
     got = by_id(rows)
-    assert len(rows) == 3 and set(got) == {"c1", "c2", "sx2"}
+    sx = next(i for i in got if i.startswith("sx"))
+    assert len(rows) == 3 and set(got) == {"c1", "c2", sx}
     assert got["c1"]["username"] == "https://forum.example/u/alice" and got["c1"]["display_name"] == "Alice"
     assert got["c2"]["username"] == "bob99" and got["c2"]["parent_id"] == "c1"
-    assert got["sx2"]["username"] == "Carol" and got["sx2"]["parent_id"] == ""
+    assert got[sx]["username"] == "Carol" and got[sx]["parent_id"] == ""
     assert {r["thread_id"] for r in rows} == {"https://forum.example/t/1#post"}
     assert got["c1"]["timestamp"] == "2026-11-14T10:00:00+00:00" and got["c2"]["timestamp"] == "2026-11-14T10:05:00Z"
     assert all(r["source"] == "thread" and r["text"] for r in rows)
@@ -56,7 +58,8 @@ def test_thread_falls_back_to_the_page_url_and_repeated_ids_do_not_collapse():
     data = [{"@type": "Review", "url": "https://shop.example/p/1", "reviewBody": "a", "author": "x"},
             {"@type": "Review", "url": "https://shop.example/p/1", "reviewBody": "b", "author": "y"}]
     rows = schemaorg.from_html(ld(json.dumps(data)), URL)
-    assert [r["comment_id"] for r in rows] == ["https://shop.example/p/1", "sx1"]
+    assert rows[0]["comment_id"] == "https://shop.example/p/1" and rows[1]["comment_id"].startswith("sx")
+    assert rows[0]["comment_id"] != rows[1]["comment_id"]
     assert {r["thread_id"] for r in rows} == {URL}
 
 
@@ -84,7 +87,7 @@ def test_microdata_review_list():
     a, b = rows
     assert (a["comment_id"], a["username"], a["display_name"], a["timestamp"]) == ("r1", "https://shop.example/u/gus", "Gus", "2026-11-14")
     assert a["text"] == "fine\nproduct"
-    assert (b["comment_id"], b["username"], b["text"], b["timestamp"]) == ("sx1", "Hana", "second one", "2026-11-13T08:00:00Z")
+    assert b["comment_id"].startswith("sx") and (b["username"], b["text"], b["timestamp"]) == ("Hana", "second one", "2026-11-13T08:00:00Z")
     assert {r["thread_id"] for r in rows} == {"https://shop.example/p/2"}
 
 
@@ -94,7 +97,8 @@ def test_microdata_nested_reply_without_itemprop_and_unclosed_tags():
             '<div itemscope itemtype="https://schema.org/Comment"><span itemprop="author">B</span><p itemprop="text">reply</div>'
             '</div>')
     rows = by_id(schemaorg.from_html(page, URL))
-    assert rows["m1"]["text"] == "top" and rows["sx1"]["parent_id"] == "m1" and rows["sx1"]["text"] == "reply"
+    reply = next(r for i, r in rows.items() if i != "m1")
+    assert rows["m1"]["text"] == "top" and reply["parent_id"] == "m1" and reply["text"] == "reply"
 
 
 def test_bad_json_in_one_block_does_not_stop_the_others():
@@ -143,3 +147,51 @@ def test_opening_post_with_text_is_a_row_but_not_the_parent_of_comments():
 def test_json_ld_wins_when_the_page_also_has_microdata():
     page = ld(FORUM) + MICRODATA
     assert len(schemaorg.from_html(page, URL)) == 3
+
+
+def test_a_comment_reached_twice_is_one_row():
+    c1 = {"@type": "Comment", "@id": "c1", "text": "first", "author": "A"}
+    c2 = {"@type": "Comment", "@id": "c2", "text": "reply", "author": "B"}
+    c1["comment"] = [c2]
+    post = {"@type": "DiscussionForumPosting", "@id": "p1", "comment": [c1]}
+    rows = schemaorg.from_html(ld(json.dumps({"@graph": [post, c1, c2]})), URL)  # nested in the posting and top level in @graph
+    got = by_id(rows)
+    assert len(rows) == 2 and got["c2"]["parent_id"] == "c1" and got["c1"]["thread_id"] == "p1"
+    assert len(schemaorg.from_html(ld(FORUM, FORUM), URL)) == 3  # two identical blocks
+
+
+def test_same_id_with_other_author_or_text_stays_apart():
+    data = [{"@type": "Review", "@id": "r", "reviewBody": "a", "author": "x"}, {"@type": "Review", "@id": "r", "reviewBody": "b", "author": "x"},
+            {"@type": "Review", "@id": "r", "reviewBody": "a", "author": "y"}]
+    rows = schemaorg.from_html(ld(json.dumps(data)), URL)
+    assert len(rows) == 3 and len({r["comment_id"] for r in rows}) == 3
+
+
+def test_generated_ids_differ_between_pages():
+    def page(url, mark):
+        data = json.dumps([{"@type": "Review", "reviewBody": f"{mark}{i}", "author": f"u{i}"} for i in range(3)])
+        return {"url": url, "frames": [{"html": ld(data)}]}
+    comments, _, _ = convert({"url": URL, "pages": [page(URL, "a"), page(URL + "2", "b"), page(URL, "c")]})
+    assert len(comments) == 9
+
+
+def test_stray_end_tags_and_nested_text_props_are_fast():
+    t = time.time()
+    schemaorg.from_html('<div itemscope itemtype="https://schema.org/Comment">' + "<div>" * 50000 + "</b>" * 50000, URL)
+    schemaorg.from_html('<div itemscope itemtype="https://schema.org/Comment">' + '<span itemprop="text">x' * 5000, URL)
+    assert time.time() - t < 2
+
+
+def test_faq_boilerplate_is_not_a_comment():
+    faq = {"@type": "FAQPage", "mainEntity": [
+        {"@type": "Question", "name": "q?", "text": "q?", "acceptedAnswer": {"@type": "Answer", "text": "official answer"}},
+        {"@type": "Question", "name": "q2", "acceptedAnswer": {"@type": "Answer", "text": "by a company", "author": {"@type": "Organization", "name": "Acme"}}}]}
+    assert schemaorg.from_html(ld(json.dumps(faq)), URL) == []
+    qa = {"@type": "QAPage", "mainEntity": {"@type": "Question", "text": "why?", "author": {"@type": "Person", "name": "Q"},
+                                            "suggestedAnswer": [{"@type": "Answer", "text": "because", "author": {"@type": "Person", "name": "A"}}]}}
+    assert [r["text"] for r in schemaorg.from_html(ld(json.dumps(qa)), URL)] == ["why?", "because"]
+
+
+def test_script_type_is_case_insensitive():
+    page = '<script type="Application/LD+JSON; charset=utf-8">' + json.dumps({"@type": "Comment", "text": "t", "author": "a"}) + "</script>"
+    assert len(schemaorg.from_html(page, URL)) == 1
