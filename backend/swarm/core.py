@@ -143,7 +143,7 @@ def _ignore(con, path):
 def analyze(comments_path, profiles_path=None, *, min_confidence=MIN_CONFIDENCE, min_shared=d.MIN_SHARED,
             alpha=d.ALPHA, min_size=d.MIN_SIZE, pair_budget=d.PAIR_BUDGET, similar_text=False, ignore_path=None,
             long_words=d.LONG_WORDS, similar_model=None, created_days=d.CREATED_DAYS, member_ratio=MEMBER_RATIO,
-            group_loose=d.GROUP_LOOSE):
+            group_loose=d.GROUP_LOOSE, rate_cap=d.RATE_CAP):
     con = connect()
     try:
         warnings = load(con, comments_path, profiles_path)
@@ -153,7 +153,7 @@ def analyze(comments_path, profiles_path=None, *, min_confidence=MIN_CONFIDENCE,
         signals, detect_warnings = d.detect(con, min_shared=min_shared, alpha=alpha, min_size=min_size,
                                             pair_budget=pair_budget, similar_text=similar_text,
                                             long_words=long_words, similar_model=similar_model, created_days=created_days,
-                                            group_loose=group_loose)
+                                            group_loose=group_loose, rate_cap=rate_cap)
         comments, accounts, synthetic = con.execute(
             "select count(*), count(distinct username), coalesce(bool_or(synthetic), false) from comments").fetchall()[0]
         return {
@@ -162,7 +162,7 @@ def analyze(comments_path, profiles_path=None, *, min_confidence=MIN_CONFIDENCE,
                        "comments": comments, "accounts": accounts, "synthetic": bool(synthetic)},
             "parameters": {"min_words": d.MIN_WORDS, "min_shared": min_shared, "long_words": long_words,
                            "alpha": alpha, "min_size": min_size, "min_confidence": min_confidence, "member_ratio": member_ratio, "created_days": created_days,
-                           "group_loose": group_loose,
+                           "group_loose": group_loose, "rate_cap": rate_cap,
                            **({"similar_text": True, "similar_model": similar_model or d.similar.MODEL} if similar_text else {}),
                            **({"ignored_accounts": ignored} if ignore_path is not None else {})},
             "signals": signals,

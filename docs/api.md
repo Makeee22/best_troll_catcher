@@ -40,7 +40,7 @@ Shortened: the example shows two of the three swarms and the `warnings` list is 
 {
   "source": {"comments_file": "comments.csv", "profiles_file": "profiles.csv",
              "comments": 5773, "accounts": 256, "synthetic": true},
-  "parameters": {"min_words": 5, "min_shared": 2, "long_words": 10, "alpha": 0.01, "min_size": 3, "min_confidence": 0.2, "member_ratio": 0.5, "created_days": 30},
+  "parameters": {"min_words": 5, "min_shared": 2, "long_words": 10, "alpha": 0.01, "min_size": 3, "min_confidence": 0.2, "member_ratio": 0.5, "created_days": 30, "group_loose": 0.05, "rate_cap": 10},
   "signals": {
     "text":   {"status": "used", "reason": null, "items": 5483, "links": 41},
     "link":   {"status": "used", "reason": null, "items": 60, "links": 0},
@@ -83,7 +83,7 @@ Shortened: the example shows two of the three swarms and the `warnings` list is 
 |---|---|---|
 | `source.synthetic` | `true` when the data is simulated. | **Always show it**, e.g. a "synthetic data" badge. |
 | `parameters` | The settings of this run. | Show them next to the numbers. |
-| `signals` | One entry per kind of evidence (`text`, `link`, `repost`, `reply`, plus `similar_text` when requested): `used` or `skipped` (with a `reason`), how many shared items it found and how many account pairs it linked. Also `created_together`: `items` = accounts with a creation date, `links` = links that the creation window made stronger (it never links on its own). | Show which signals ran. |
+| `signals` | One entry per kind of evidence (`text`, `link`, `repost`, `reply`, plus `similar_text` when requested): `used` or `skipped` (with a `reason`), how many shared items it found and how many account pairs it linked. Also `created_together`: `items` = accounts with a creation date, `links` = links that the creation window made stronger (it never links on its own). Also `group_test`: `items` = candidate groups tested, `accepted`, `links` = pairs linked because their whole group shares far more than chance (`skipped` with `--no-group-test`). | Show which signals ran. |
 | `warnings` | Plain sentences about the input, e.g. columns that were missing. | Show them; they explain weak results. |
 | `id` | Stable for the same set of accounts; safe to use in URLs. | |
 | `confidence` | 0 to 1: on average, the share of a member's own content that another member also has. Not a probability. See `docs/core-design.md`. | A bar or a number. |

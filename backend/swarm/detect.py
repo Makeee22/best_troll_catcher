@@ -28,6 +28,10 @@ KINDS = ("text", "link", "repost", "reply")
 # test one by one (Test A at 15+ comments per account), but together they are 50-100 times denser than humans' chance
 # shares. Chosen before the first run, not tuned. None turns the test off.
 GROUP_LOOSE = 0.05
+# Most sharers an item counts with in the chance rate. Chosen 14.11 night with labels visible: 3, 5 and 10 tried on
+# Test A and Cresci; 3 and 5 made the synthetic look-alikes (a viral post, breaking news, fans) into clusters, so 10 is
+# the smallest that keeps them apart. To be checked on held-out data. None: no cap.
+RATE_CAP = 10
 
 # Column each kind reads; a kind is skipped when all of its columns are empty.
 _NEEDS = {"text": ("text",), "link": ("text", "links"), "repost": ("repost_of",), "reply": ("parent_id",)}
@@ -214,7 +218,8 @@ def _clusters(links, min_size):
 
 
 def detect(con, *, min_shared=MIN_SHARED, alpha=ALPHA, min_size=MIN_SIZE, pair_budget=PAIR_BUDGET, similar_text=False,
-           long_words=LONG_WORDS, similar_model=None, created_days=CREATED_DAYS, group_loose=GROUP_LOOSE):
+           long_words=LONG_WORDS, similar_model=None, created_days=CREATED_DAYS, group_loose=GROUP_LOOSE,
+           rate_cap=RATE_CAP):
     warnings = []
     skipped = _skipped(con)
     fill = lambda sql: sql.replace("__WORDS__", _WORDS).replace("__LINK_KEY__", _LINK_KEY).replace("__MIN_WORDS__", str(int(MIN_WORDS)))
@@ -236,8 +241,10 @@ def detect(con, *, min_shared=MIN_SHARED, alpha=ALPHA, min_size=MIN_SIZE, pair_b
     con.execute("create or replace table df as select kind, key, count(*) as df from item group by kind, key")
     con.execute("create or replace table n as select username, kind, count(*) as n from item group by username, kind")
     # chance that two different posts of one kind are the same item (unbiased: a post never matches itself)
-    con.execute("create or replace table s as select kind, sum(df::double * (df - 1)) / nullif(sum(df)::double * (sum(df) - 1), 0) as s "
-                "from df group by kind")
+    # An item counts toward the chance rate as if at most `rate_cap` accounts shared it: a large botnet's own copies
+    # otherwise set the rate (humans share 11-16 times less often than the uncapped rate predicts, Test A).
+    con.execute("create or replace table s as select kind, sum(least(df, ?)::double * (least(df, ?) - 1)) "
+                "/ nullif(sum(df)::double * (sum(df) - 1), 0) as s from df group by kind", [rate_cap, rate_cap])
     if similar_text and con.execute("select count(*) from df where kind = 'similar_text'").fetchall()[0][0]:
         _similar_rate(con)
 
