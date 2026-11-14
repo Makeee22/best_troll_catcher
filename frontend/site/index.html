@@ -11,46 +11,68 @@
 <header class="top">
   <div>
     <h1>Spot the swarm</h1>
-    <p class="muted">Finds groups of accounts that repeatedly post the same content within seconds of each other.</p>
+    <p class="muted">Finds groups of accounts that share the same content far more often than chance would explain. Judged on what accounts share, never on a single post.</p>
   </div>
   <span id="synthetic-badge" class="badge-synthetic" hidden>Synthetic data</span>
 </header>
 
 <main>
   <section class="card" aria-labelledby="upload-h">
-    <h2 id="upload-h">Analyse a CSV file</h2>
-    <label id="drop" class="drop" for="file">
-      <input id="file" type="file" accept=".csv,text/csv">
-      <strong>Choose a .csv file</strong> or drop it here
-      <span class="muted">UTF-8, at most 20 MB</span>
-    </label>
+    <h2 id="upload-h">Analyse your comments</h2>
+    <form id="upload-form" class="drop" novalidate>
+      <div class="pickers">
+        <label>
+          <strong>Comments CSV</strong> <span class="muted">(required)</span>
+          <input id="comments-file" type="file" accept=".csv,text/csv">
+        </label>
+        <label>
+          <strong>Profiles CSV</strong> <span class="muted">(optional: labels and creation dates)</span>
+          <input id="profiles-file" type="file" accept=".csv,text/csv">
+        </label>
+      </div>
+      <span class="muted">Or drop one or both files here. A file whose name contains “profile” is taken as the profiles file. UTF-8, at most 20 MB together.</span>
+      <button id="analyse" type="submit" class="primary">Analyse</button>
+    </form>
     <p id="status" class="muted" role="status"></p>
     <div id="error" class="error" role="alert" hidden></div>
     <p>
       <button id="try-sample" type="button">Run the synthetic sample</button>
-      <a href="samples/synthetic_sample.csv" download>Download the sample CSV</a>
-      <a href="samples/tiny_synthetic_example.csv" download>Tiny example (20 rows)</a>
+      <a href="samples/synthetic_comments.csv" download>Sample comments.csv</a>
+      <a href="samples/synthetic_profiles.csv" download>Sample profiles.csv</a>
     </p>
     <details>
-      <summary>Expected CSV format</summary>
-      <p>First line is the header. One row per post. Separator comma (semicolon also works); quote text that contains the separator.</p>
+      <summary>Expected file format</summary>
+      <p>First line is the header. Column names may be in any case. Comma or semicolon separated (Excel's Finnish CSV works). Every column except <code>username</code> may be missing; the result says which signals could run.</p>
+      <h3>comments.csv, one row per comment</h3>
       <div class="scroll">
         <table>
-          <thead><tr><th>Column</th><th>Required</th><th>Meaning</th></tr></thead>
+          <thead><tr><th>Column</th><th>Used for</th></tr></thead>
           <tbody>
-            <tr><td><code>id</code></td><td>yes</td><td>Unique per post.</td></tr>
-            <tr><td><code>account</code></td><td>yes</td><td>The author's stable id or handle.</td></tr>
-            <tr><td><code>timestamp</code></td><td>yes</td><td>ISO 8601, e.g. <code>2026-11-01T10:00:00Z</code>. Without an offset it is read as UTC.</td></tr>
-            <tr><td><code>text</code></td><td>yes (may be empty)</td><td>The post text. Links inside it are found automatically.</td></tr>
-            <tr><td><code>links</code></td><td>no</td><td>URLs separated by a space or <code>|</code>.</td></tr>
-            <tr><td><code>repost_of</code></td><td>no</td><td>Id of the reposted post.</td></tr>
-            <tr><td><code>coordinated</code></td><td>no</td><td><code>true</code>/<code>false</code>: the known label. Needed for the metrics. Leave empty when unknown.</td></tr>
-            <tr><td><code>synthetic</code></td><td>no</td><td><code>true</code> for simulated posts.</td></tr>
+            <tr><td><code>username</code></td><td><strong>Required.</strong> The account.</td></tr>
+            <tr><td><code>text</code></td><td>Same text (at least 5 words) and links found in the text.</td></tr>
+            <tr><td><code>links</code></td><td>Same links. URLs separated by spaces.</td></tr>
+            <tr><td><code>repost_of</code></td><td>Reposts of the same comment.</td></tr>
+            <tr><td><code>parent_id</code></td><td>Replies to the same comment.</td></tr>
+            <tr><td><code>timestamp</code></td><td>First and last time seen. ISO 8601, e.g. <code>2026-11-01T10:00:00Z</code>.</td></tr>
+            <tr><td><code>comment_id</code></td><td>Pointing to example comments.</td></tr>
+            <tr><td><code>synthetic</code></td><td><code>1</code> or <code>true</code> marks simulated data.</td></tr>
           </tbody>
         </table>
       </div>
-<pre>id,account,timestamp,text,links,repost_of,coordinated,synthetic
-1,some_user,2026-11-01T10:00:00Z,"Post text, with a comma",https://example.org/a,,false,true</pre>
+      <h3>profiles.csv, one row per account (optional)</h3>
+      <div class="scroll">
+        <table>
+          <thead><tr><th>Column</th><th>Used for</th></tr></thead>
+          <tbody>
+            <tr><td><code>username</code></td><td>Joins to the comments.</td></tr>
+            <tr><td><code>label</code></td><td><code>human</code>, <code>bot</code> or <code>bot:&lt;family&gt;</code>. Only to measure precision and false positives, never to decide.</td></tr>
+            <tr><td><code>created_at</code></td><td>Shows when a group's accounts were created close together (evidence only).</td></tr>
+          </tbody>
+        </table>
+      </div>
+<pre>username,timestamp,text,repost_of
+some_user,2026-11-01T10:00:00Z,"Text, with a comma, in quotes",</pre>
+      <p class="muted">Small files prove little: with few comments the chance test rarely links anyone, by design.</p>
     </details>
   </section>
 
@@ -59,11 +81,17 @@
       <h2 id="summary-h">Summary</h2>
       <dl id="summary" class="tiles"></dl>
       <p id="synthetic-note" class="note" hidden>This data is simulated. Results on it show that the code works, not how good the detection is on real traffic.</p>
+      <div id="warnings"></div>
+      <details>
+        <summary>Signals and settings of this run</summary>
+        <div id="signals"></div>
+      </details>
     </section>
 
     <section class="card" aria-labelledby="flagged-h">
       <h2 id="flagged-h">Flagged accounts</h2>
-      <p class="muted">Flagged = posted the same content within 60 seconds of another account on at least 3 separate occasions, in a linked group of at least 3 accounts. A flag is a lead to check, not proof: automated news feeds posting the same headlines look the same to these rules.</p>
+      <p class="muted">An account is flagged when it is in a group of at least 3 accounts linked by sharing content more often than chance predicts.
+        <strong>Confidence</strong> is how much of the members' own content the group shares (0–1). It is not a probability, and a flag is a lead to check, not proof: a harmless automated feed that posts the same wire text looks exactly like a swarm.</p>
       <div id="flagged"></div>
     </section>
 
@@ -73,7 +101,7 @@
     </section>
 
     <section class="card" aria-labelledby="swarms-h">
-      <h2 id="swarms-h">Swarms</h2>
+      <h2 id="swarms-h">Swarms and their evidence</h2>
       <div id="swarm-list" class="swarm-list"></div>
       <div id="detail"></div>
     </section>
@@ -82,7 +110,7 @@
 
 <footer class="muted">
   Junction 2026 hackathon project, MIT licence.
-  <a href="https://github.com/Makeee22/best_troll_catcher">Source</a>
+  <a href="https://github.com/Makeee22/best_troll_catcher">Source and how to run it on your own machine</a>
 </footer>
 
 <script src="config.js"></script>
