@@ -1,0 +1,18 @@
+# Override: "api" becomes backend/ on its own (backend/Dockerfile), without the upload
+# endpoint of frontend/api/app.py. Use it once the backend has its own POST /api/analyze,
+# or to serve one fixed result. Run from the repo root:
+#   docker compose -f docker-compose.yml -f deploy/docker-compose.backend.yml up -d --build
+#
+# Without an upload endpoint the page shows the backend's result and an upload gives a
+# clear "server does not accept uploads yet" message.
+services:
+  api:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    # To serve a result made with `python -m swarm ... --out result.json` (see docs/api.md):
+    # environment:
+    #   RESULT_FILE: /data/result.json
+    # volumes:
+    #   - ./data/results:/data:ro
+    # Never mount the Cresci 2017 data here: it must not be served from the live site.

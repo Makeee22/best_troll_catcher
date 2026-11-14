@@ -1,0 +1,23 @@
+# The live site (deploy steps: deploy/README.md)
+#
+#   web  nginx: the static dashboard, and a proxy for /api/ and /health -> api:8000
+#   api  the backend's API (backend/swarm, unchanged) plus the upload endpoint in frontend/api/app.py
+#
+# Local or a bare server:      docker compose up -d --build                (page on port 80)
+# The Hostinger VPS (Traefik): add  -f deploy/docker-compose.hostinger.yml (see deploy/README.md)
+services:
+  web:
+    build: ./frontend
+    ports:
+      - "80:80"
+    depends_on:
+      - api
+    restart: unless-stopped
+
+  api:
+    build:
+      context: .                          # repo root: the image copies backend/swarm in
+      dockerfile: frontend/api/Dockerfile
+    expose:
+      - "8000"
+    restart: unless-stopped

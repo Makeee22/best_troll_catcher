@@ -1,0 +1,14 @@
+# Override for the Hostinger VPS. Its Traefik already owns ports 80 and 443 and routes
+# subdomains of srv2159299.hstgr.cloud to containers by label, with Let's Encrypt HTTPS.
+# So "web" publishes no port and gets the subdomain swarm.srv2159299.hstgr.cloud instead.
+#
+#   docker compose -p spot-the-swarm -f docker-compose.yml -f deploy/docker-compose.hostinger.yml up -d --build
+services:
+  web:
+    ports: !reset []
+    labels:
+      - traefik.enable=true
+      - traefik.http.routers.swarm.rule=Host(`swarm.srv2159299.hstgr.cloud`)
+      - traefik.http.routers.swarm.entrypoints=websecure
+      - traefik.http.routers.swarm.tls.certresolver=letsencrypt
+      - traefik.http.services.swarm.loadbalancer.server.port=80

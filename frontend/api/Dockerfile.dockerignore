@@ -1,0 +1,7 @@
+# Only what the API image needs leaves the repo root.
+*
+!backend/requirements.txt
+!backend/swarm
+!frontend/api/requirements.txt
+!frontend/api/app.py
+**/__pycache__

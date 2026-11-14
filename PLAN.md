@@ -146,9 +146,11 @@ Each role keeps its own block.
 - For TheSnowman99: the parameters to tune are in the design under "Parameters". Cresci 2017 is on Arde1001's machine only; `data/README.md` should say where it comes from (http://mib.projects.iit.cnr.it) and that its licence allows research use only.
 
 ### Front end + infrastructure
-- Done:
-- Doing:
-- Blocked:
+- Done (branch `makeee22/frontend`): **live at https://swarm.srv2159299.hstgr.cloud** (VPS behind Hostinger's Traefik, Let's Encrypt HTTPS; `deploy/README.md`). Dashboard in `frontend/site/` on the new `docs/api.md`: upload of comments + optional profiles CSV, confidence, signals and warnings, evidence per swarm, metrics at every cut with the "cut chosen with labels visible" note, synthetic badge. `frontend/api/` = the backend's `swarm.api` unchanged + `POST /api/analyze` running `swarm.core.analyze()`.
+- B4 choice: **static page**, no build step, served by nginx, which also proxies `/api/` to the API container. The table above still says OPEN: for the keeper to mark.
+- Doing: merging `makeee22/frontend` to `main`.
+- For Arde1001: the numpy start-up crash is fixed in `a0893fd`/`54664a6` (tested on the VPS); the stopgap in `frontend/api/` is gone. When the backend has its own upload endpoint, `frontend/api/` can go (`deploy/docker-compose.backend.yml`).
+- Blocked: nothing.
 
 ### Presentation + documentation
 - Done:
