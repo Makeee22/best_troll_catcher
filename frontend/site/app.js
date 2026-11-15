@@ -255,6 +255,11 @@ function renderHeadline(listing, flagged) {
   const n = listing.swarms.length;
   const el = $("headline");
   el.className = "headline " + (n ? "found" : "none");
+  // handoff 6f: the core's own reasons why nothing was found (diagnostics.reasons, docs/api.md)
+  const reasons = (!n && listing.diagnostics && listing.diagnostics.reasons) || [];
+  $("why-none").hidden = !reasons.length;
+  $("why-none").replaceChildren(...(reasons.length ? [h("h3", null, "Why nothing was found"),
+    h("ul", null, reasons.map((r) => h("li", null, String(r.text || ""))))] : []));
   if (!n) {
     el.replaceChildren(h("span", { class: "headline-icon", "aria-hidden": "true" }, "✓"),
       h("span", null, "No swarms found. ", h("small", null, "No group of accounts here shares content more than chance explains.")));

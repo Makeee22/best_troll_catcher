@@ -199,6 +199,9 @@ details.more[open] summary { margin-bottom: 6px; }
 .headline-icon { flex: none; width: 52px; height: 52px; display: grid; place-items: center; border: 3px solid var(--ink); font-size: 2rem; }
 .headline.found .headline-icon { background: var(--pink); }
 .headline.none .headline-icon { background: var(--mint); }
+.why-none { margin: 4px 0 10px; }
+.why-none h3 { margin: 0 0 4px; font-size: 1rem; }
+.why-none ul { margin: 0; padding-left: 20px; }
 .source-line { color: var(--muted); font-weight: 600; overflow-wrap: anywhere; margin: 0 0 12px; }
 .source-line:empty { display: none; }
 .tiles { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; margin: 0; }
