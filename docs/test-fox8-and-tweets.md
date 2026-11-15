@@ -155,3 +155,24 @@ Flagged per 1,000 on the tweet set is **not a false-positive rate**: none of the
 - **More humans below the cut.** Humans who form their own small clusters now score higher. On Fox8 the FPR at cuts 0–0.1 rose from about 0.01–0.03 to 0.05–0.13 (held-out at 0.1: 30 of 583 humans; main had 0). At the cut the product uses (0.2) it is still 0 on both halves. Lowering the cut under 0.2 would now cost much more than before.
 - **The tweet set flags a little more.** Per 1,000 accounts: part 001 1.36 → 1.91 → 2.00; the 4.1M sample 1.91 → 2.71 → 2.83 (+48% against `main`, +4% against `link-kinds`). Almost all the rise came with `link-kinds`. Under team decision B15 (find more, accept some false positives) that is within the agreed direction, but it is unaudited: how many of the extra clusters are real is not known.
 - **The memory cap is not holding on this branch.** The 4.1M sample peaked at **9.9 GB** of process memory with `SWARM_MEMORY_LIMIT=4GB`, against 4.5 GB on `link-kinds`, and took 443 s against 264 s. The cap only bounds DuckDB, so the extra memory is probably used outside it (the group test or the weighted share). The planted-swarm run also took longer (1,318 s against 717 s). On the 8 GB server this size of input would swap again; **for the backend owner to check before merging.**
+
+## Test F3: Fox8 on `main` after the merge (`f6d45e8`)
+
+Run 15.11.2026 about 02:45 by J0l3s. `main` at `f6d45e8`; detection as of `64bc287` (link-weighted confidence, rate cap 10, no group test, R7 reply rule); the later commits only add collectors. Rules only, default DuckDB memory limit (half of 8 GB). Same data and halves as Test F; the held-out half has now been run on three versions, so it is no longer untouched.
+
+| | Dev half | Held-out half | Whole set |
+|---|---|---|---|
+| Cluster confidence (Test F, old `main`) | **0.583** (0.239) | **0.577** (0.240) | **0.658** (0.275) |
+| Flagged | 575 of 575 | 562 of 562 | 1,137 of 1,139 |
+| Precision / recall / FPR at 0.2 | 1.000 / 0.998 / 0 | 1.000 / 0.997 / 0 | 1.000 / 0.997 / 0 |
+| Recall at 0.3 and 0.5 | 0.998 (Test F: 0) | 0.997 (0) | 0.997 (0) |
+| FPR at cuts 0 / 0.05 / 0.1 | 0.090 / 0.068 / 0 | 0.120 / 0.086 / 0.050 | 0.176 / 0.166 / 0.004 |
+| Links repost / reply / text / link | 136,682 / 15,950 / 2,325 / 2,319 | 126,831 / 19,512 / 2,214 / 2,287 | 527,258 / 72,160 / 10,223 / 9,194 |
+| **Peak memory** | **0.42 GB** | **0.39 GB** | **0.73 GB** |
+| Time, wall / CPU | 52 s / 10 s | 18 s / 10 s | 33 s / 23 s |
+
+- **Memory is fine:** the same as Test F (0.4 GB per half, 0.7 GB whole), far under the limit and the server's 8 GB. The 9.9 GB peak of `arde/group-test` went with the group test.
+- **Wall time** was 2–5 times Test F's while CPU time stayed at 10–23 s, so the machine was probably busy; repeat on an idle machine before quoting speed.
+- **The fix holds on held-out data:** confidence about 0.58, recall unchanged at every cut up to 0.5.
+- **The cost is under the cut:** on the whole set 17–18% of humans are flagged at cuts 0 and 0.05 (Test F 1.4%). At 0.2 and above, none. Keep the cut at 0.2 or above.
+- The same rate cap that lifts Fox8 over-links retweet storms on real data: see `docs/test-brazil-elections.md`.

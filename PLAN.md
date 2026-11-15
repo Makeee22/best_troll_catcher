@@ -171,6 +171,10 @@ Record every evaluation run here: date and time, dataset, variant, precision, re
 | 15.11 00:10 | **Cresci subset** `AllComments_Combined.csv` (3,574,246 comments; 4,528 social bots, 377 humans) | branch `arde/group-test` (`8600aa2`: group test, rate cap 10, copied share per linking kind), rules only | **1.000** | **0.987** | **0.000** | TP 4,468, FP 0, FN 60, TN 377: no human flagged (was 106 on `002022e`, 266 before member flags). Still **one cluster of 4,859 accounts** (humans chained in, but not flagged); same at every cut 0.05–0.5, at cut 0 FPR 0.008. Text 4,315,241 links, repost 49,246, reply 11,524, link 2, group test 0. 87 s. Run on Makeee22's machine, aggregate numbers only. |
 | 15.11 00:10 | **Test R**, community-reported Reddit bots (4,053 comments, 72 reported, 96 background) | `arde/group-test` (`8600aa2`), rules only | 0.909 | 0.139 | 0.010 | Unchanged: 2 clusters, 10 reported + 1 background account; group test 1 item, 0 links. |
 | 15.11 00:10 | **IRA troll tweets, random sample** (FiveThirtyEight; 4,831 tweets, 216 IRA accounts, Jan–Sep 2017; every account a troll, so recall only) | `arde/group-test` (`8600aa2`), rules + similar-text | n/a | **0.000** | n/a | 0 clusters (also 0 on `main`). Group test 6 items, 5 links; text 10, link 4, repost 1, similar 3 links. A random sample leaves a median of 6 tweets per account over 9 months, and only 9 account pairs share 2+ items (handoff 6a, case 3); a time-window slice of the full files is the fair test. |
+| 15.11 01:10 | **Brazil elections 2021, September** (4,574,359 tweets, 669,208 accounts; retweets and replies only, no text; weak labels: average `botscore` ≥ 0.5 = bot, 9.3%); whole, dev and held-out halves | core `85e4838` (Test F detection + memory cap), rules only | n/a | n/a | n/a | **Test B** (`docs/test-brazil-elections.md`). All three runs **out of memory**: 2.29 billion account pairs from retweets (widest item 15,838 accounts); DuckDB filled 15–23 GB of temporary disk after 150–305 s, peak 4.45 GB. |
+| 15.11 01:25 | **Brazil, 1 September 2021** (181,929 tweets, 75,805 accounts, 5,591 weak bots) | core `85e4838`, rules only | – | 0 | 0 | 0 links, 0 clusters: no pair shares more than chance. 201 s, 4.55 GB. |
+| 15.11 02:00 | **Brazil, 1 September 2021**, as above | `main` core `64bc287` (link-weighted confidence, rate cap 10, R7), rules only | 0.064 (weak labels) | 0.250 | **0.287** | **266 flagged per 1,000**: 46 clusters, one of **19,987 accounts at 0.975**; 11.2M repost links (every pair that shared enough was linked). Same numbers at every cut 0–0.5. Flagged accounts have high bot scores **less** often than average (6.4% vs 7.4%): viral-retweet look-alike, caused by the rate cap. 688 s, 4.63 GB. The 22–28 September week was stopped on request. |
+| 15.11 02:45 | **Fox8-23** dev (1,132), held-out (1,147, third run on it) and whole set (2,279) | `main` `f6d45e8` (detection `64bc287`), rules only | 1.000 / 1.000 / 1.000 | 0.998 / 0.997 / 0.997 at every cut 0–0.5 | 0 at 0.2+; at cut 0: 0.090 / 0.120 / 0.176 | **Test F3.** Confidence 0.583 / 0.577 / 0.658 (Test F 0.239 / 0.240 / 0.275). **Peak memory 0.42 / 0.39 / 0.73 GB**, as in Test F; CPU 10 / 10 / 23 s (wall time higher, machine busy). |
 
 ## Status by role
 
@@ -195,7 +199,7 @@ State on `main` at the end of the night (15.11, `c0cc0bb`); history of each step
 - Blocked: nothing.
 
 ### Presentation + documentation
-- Done: Test F, Fox8-23 and the unlabelled tweet set (`docs/test-fox8-and-tweets.md`, three Results rows, 14.11 22:30).
+- Done: Test F, Fox8-23 and the unlabelled tweet set (`docs/test-fox8-and-tweets.md`, three Results rows, 14.11 22:30). Test F2 (`arde/group-test`) and F3 (Fox8 on merged `main`). Test B, Brazil elections 2021 (`docs/test-brazil-elections.md`): the rate cap over-links viral retweets.
 - Doing:
 - Blocked:
 
