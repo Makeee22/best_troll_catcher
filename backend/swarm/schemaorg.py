@@ -220,6 +220,8 @@ def from_html(html, page_url):
             roots.append(json.loads(block))
         except (ValueError, RecursionError):  # one bad block must not hide the others
             continue
-    # a page that carries both markups (Discourse does) describes the same posts twice: JSON-LD wins
+    # a page that carries both markups (Discourse does) describes the same posts twice: the fuller one wins, JSON-LD on a tie
+    # (XenForo's JSON-LD holds only the opening post, its microdata every reply)
     salt = hashlib.blake2s(f"{page_url}\0{html}".encode("utf-8", "replace"), digest_size=4).hexdigest()
-    return _rows(_found(roots) or _found(page.roots), page_url, salt)
+    ld, micro = _found(roots), _found(page.roots)
+    return _rows(micro if len(micro) > len(ld) else ld, page_url, salt)

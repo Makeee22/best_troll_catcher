@@ -149,6 +149,19 @@ def test_json_ld_wins_when_the_page_also_has_microdata():
     assert len(schemaorg.from_html(page, URL)) == 3
 
 
+def test_microdata_wins_when_the_json_ld_holds_only_the_opening_post():
+    # XenForo: JSON-LD describes the thread's first post, the microdata every reply (one <article itemtype=Comment> each)
+    opening = {"@type": "WebPage", "mainEntity": {"@type": "DiscussionForumPosting", "@id": "t1", "text": "opening post", "author": "Op"}}
+    replies = "".join(f'<article itemscope itemtype="https://schema.org/Comment" itemid="c{i}">'
+                      f'<meta itemprop="parentItem" itemscope itemid="t1">'
+                      f'<section itemprop="author" itemscope itemtype="https://schema.org/Person"><span itemprop="name">u{i}</span></section>'
+                      f'<time itemprop="datePublished" datetime="2026-11-14T10:0{i}:00+00:00"></time>'
+                      f'<div itemprop="text">reply number {i}</div></article>' for i in range(4))
+    rows = schemaorg.from_html(ld(json.dumps(opening)) + replies, URL)
+    assert [r["username"] for r in rows] == ["u0", "u1", "u2", "u3"]
+    assert rows[2]["text"] == "reply number 2" and rows[2]["timestamp"].startswith("2026-11-14T10:02")
+
+
 def test_a_comment_reached_twice_is_one_row():
     c1 = {"@type": "Comment", "@id": "c1", "text": "first", "author": "A"}
     c2 = {"@type": "Comment", "@id": "c2", "text": "reply", "author": "B"}
