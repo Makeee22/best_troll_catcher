@@ -197,3 +197,21 @@ All additive; nothing breaks until these are done, but the R7 fix and R5 only re
 4. **`signals.group_test`** is gone (the group test was removed); no label needed. `parameters` has `rate_cap`, no `group_loose`.
 5. **Redeploy:** the live `/api/swarms` has no `diagnostics` yet (checked 15.11 night).
 
+### 6g. Backend → front end: three new link types (15.11 night, `e5f510e`)
+
+The collector now reads three more kinds of link (details: `docs/collect-interface.md`, section 1). Nothing in the result format changed; `docs/api.md` is as in 6f.
+
+| Link | Example form | Histories | Credits | What to expect |
+|---|---|---|---|---|
+| **Mastodon** post, any server | `https://SERVER/@NAME/ID` (also `@NAME@OTHER`) | yes, near the thread's date | 0 | A server shows only the replies it has received from other servers: mastodon.social gave 52 of 126, reported as reason `partial_thread`. Usernames are `name@server`. |
+| **Discourse** topic, any forum | `https://FORUM/t/SLUG/ID` | yes, near the topic's date | 0 | Every post (34/34 and 98/98 in tests). Usernames are the forum's own. |
+| **Any other page** with standard comment markup (XenForo, Invision and Discourse forums, many news and Q&A sites) | any link no other module takes | no | **1** per link | One page only. Every account is `thread_only`, so only copy-paste and shared links can link them; reasons `capped_histories` and `thin_histories` say so. A page without markup fails with "This site is not supported yet: HOST (the page has no standard comment markup to read)…". |
+
+What the site needs:
+1. **The link check in `start_url_job` (`jobs.py`) now always passes:** the last collector (`generic`) matches every link. Either keep it so (unknown links become a job that fails with the collector's message after 5-20 s and 1 credit), or skip `generic` there (`any(mod.matches(url) for name, mod in swarm_collect.SITES if name != "generic")`) and offer the page read as a separate choice. Backend suggestion: keep it, the message is clear.
+2. **Update the list of links that work** (the 400 message and the link card's help text): add "a Mastodon post (any server)", "a Discourse forum topic (any forum)", and "other forum or news pages with standard comment markup (one page, no commenter histories)".
+3. **Platform label:** `bundle.thread.platform` is `Mastodon (SERVER)`, `Discourse (FORUM)`, or the host name for a generic page; `start_url_job` sets a platform only for Bluesky and Reddit, but `_run_link` merges the bundle's `thread` in afterwards, so the label is right once collection ends.
+4. **Profile links**, if the page links usernames: Mastodon `https://SERVER/@NAME` (from `name@server`), Discourse `https://FORUM/u/NAME`.
+5. **Progress:** a generic page reports no progress (one request); the stage text "Reading the thread" stays until analysis.
+6. Demo candidates (0 flagged, clear reasons): a busy `discuss.python.org` topic (Discourse) and a `mastodon.social` post with replies.
+

@@ -24,8 +24,6 @@ def collect(url, client, history, max_participants, on_progress):
         raise CollectError(f"This site is not supported yet: {host} (the page has no standard comment markup to read). "
                            "Save the page in the browser and upload it, or export the comments as a CSV.")
     authors = {r["username"] for r in rows if r["username"]}
-    if on_progress:
-        on_progress(1, 1)
     return {
         "pages": [{"url": url, "role": "thread", "html": html}],
         "notes": [f"thread: read from the page's schema.org markup; one page only (later pages of a long thread are not "
