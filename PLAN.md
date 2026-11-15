@@ -56,7 +56,7 @@ False positives we design for, each with a test:
 | Sat 13:00–13:45 | Lunch + Hostinger keynote | The presentation owner attends; the rest keep building. |
 | Sat 13:45–18:00 | **Core MVP done** | Tasks 5–7: command line, numbers on the real dataset recorded below, API on the live URL showing the synthetic sample. |
 | Sat 18:00–18:30 | Dinner + **checkpoint** | Scope of the website cut to what can be finished. |
-| Sat 18:30–23:00 | **Website (part 2)** | Run the core from the site. Then, in this order, as far as time allows: collect comments from a link (Context.dev), explain a cluster (AI Router), upload a local result. Dashboard usable. |
+| Sat 18:30–23:00 | **Website (part 2)** | Run the core from the site. Then, in this order, as far as time allows: collect comments from a link (Context.dev), explain a cluster (AI Router), ~~upload a local result~~ (dropped 15.11: no example data; datasets are credited, never shared). Dashboard usable. |
 | Sat 23:00–06:30 | **Build and package** (all-nighter) | Features continue until the team decides to stop. Deck draft, video script, README, demo script. |
 | Sun 06:30–08:30 | **Record and finish** | Video under 2:00 and public. Deck as PDF. Live URL tested from a phone on mobile data. |
 | Sun 08:30 | **Submit as FINAL** | For both challenges. Editable until 10:00. |
@@ -206,4 +206,5 @@ State on `main` at the end of the night (15.11, `c0cc0bb`); history of each step
 ### Data + detection criteria
 - 15.11 night: TheSnowman99 is away until after the deadline; the rest of the team took over this role's open work.
 - Done (by Arde1001): `data/README.md` (every dataset's source, terms and handling; unknown licences stated as unknown and treated as research use only) and `docs/criteria.md` (every detection criterion, its value and how it was chosen).
+- Dropped 15.11: example data and "upload a locally produced result". No dataset is shared in any form, raw or anonymised (the anonymised Cresci example was removed from `main`); the datasets used for evaluation are credited in `data/README.md`.
 - Open: confirm the source and terms of Fox8-23, the unlabelled tweet set (TwiBot-22?) and Brazil 2021 before anything beyond aggregate numbers is published.

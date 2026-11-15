@@ -228,7 +228,6 @@ What the site needs:
 - **What to expect:** most accounts are `thread_only` (reason `thin_histories`), so clusters come from copied text and links. Live, unaudited: a very popular music video gave 17 clusters (114 accounts), each one 10-20-word text posted verbatim by 3-9 accounts that have exactly one visible comment; a recent crypto video gave 2 clusters of 3. That pattern matches YouTube's comment-copying bots, but also meme phrases: the monitoring wording matters here.
 - **Link card text:** add "a YouTube video".
 
-### 6i. Backend → front end: an example result for the example tab (15.11, `ebadd72`)
+### 6i. Withdrawn: no example result (15.11)
 
-`examples/cresci-2017-anonymised/result.json` (1.2 MB): the core on all of Cresci 2017, anonymised (accounts are `account N`, shared items are placeholders like `shared text #2 (12 words)`, times rounded to the hour). Standard result format, so `swarm.api` serves it unchanged (`RESULT_FILE=...`; checked: 16 swarms, details, metrics, diagnostics). Precision 0.9999, recall 0.833, FPR 0.0009. The tab should say "research data, anonymised; evidence texts are placeholders" and keep the cut-chosen-with-labels note. `examples/` is outside `backend/` and `frontend/`; details in `examples/README.md`.
-
+The anonymised Cresci example (`ebadd72`) is removed from `main`: Cresci 2017's terms say "The datasets cannot be redistributed", and a per-account result, even anonymised, is derived data. Team decision: no dataset is shared in any form, and there is no example tab. The site keeps its own sample files (simulated, labelled synthetic). Evaluation datasets are credited in `data/README.md`; only aggregate numbers are shown.
