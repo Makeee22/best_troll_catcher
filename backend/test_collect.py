@@ -719,3 +719,72 @@ def test_any_other_page_is_read_from_its_schema_org_markup():
     assert sorted(c["username"] for c in comments) == ["u0", "u1", "u2"]
     with pytest.raises(CollectError, match="not supported yet: plain.example .*no standard comment markup"):
         collect("https://plain.example/page", client=FakeClient(html="<html><p>no comments here</p></html>"))
+
+
+# --- YouTube -----------------------------------------------------------------------------------
+
+def ycomment(cid, author, text, video="vidAAAAAAAA", parent=None, when="2026-11-14T10:00:00Z"):
+    sn = {"authorChannelId": {"value": author}, "authorDisplayName": author.title(), "textOriginal": text,
+          "publishedAt": when, "videoId": video}
+    if parent:
+        sn["parentId"] = parent
+    return {"id": cid, "snippet": sn}
+
+
+def ythread(tid, author, text, replies=(), total=None, video="vidAAAAAAAA"):
+    return {"id": tid, "snippet": {"videoId": video, "topLevelComment": ycomment(tid, author, text, video),
+                                    "totalReplyCount": len(replies) if total is None else total},
+            "replies": {"comments": list(replies)}}
+
+
+def youtube_routes(seen):
+    def route(url):
+        u = urlparse(url)
+        q = parse_qs(u.query)
+        seen.append(url)
+        assert q["key"] == ["test-key"]
+        if u.path.endswith("/videos"):
+            return {"items": [{"id": q["id"][0], "snippet": {"channelId": "UCchan", "title": "A synthetic video", "channelTitle": "Chan"},
+                               "statistics": {"commentCount": "6"}}]}
+        if u.path.endswith("/commentThreads") and "videoId" in q:
+            if "pageToken" not in q:
+                return {"items": [ythread("t1", "UCann", "first comment", [ycomment("t1.r1", "UCbob", "a reply", parent="t1")], total=2)],
+                        "nextPageToken": "p2"}
+            return {"items": [ythread("t2", "UCbob", "second comment")]}
+        if u.path.endswith("/comments"):
+            assert q["parentId"] == ["t1"]
+            return {"items": [ycomment("t1.r1", "UCbob", "a reply", parent="t1"), ycomment("t1.r2", "UCcy", "another reply", parent="t1")]}
+        if u.path.endswith("/commentThreads") and "allThreadsRelatedToChannelId" in q:
+            return {"items": [ythread("o1", "UCann", "on another video of the channel", video="vidBBBBBBBB")]}
+        if u.path.endswith("/channels"):
+            return {"items": [{"id": i, "snippet": {"title": i[2:], "publishedAt": "2026-10-01T00:00:00Z", "description": ""}}
+                              for i in q["id"][0].split(",")]}
+        raise AssertionError(url)
+    return route
+
+
+def test_youtube_video_comments_replies_channel_and_creation_dates(monkeypatch):
+    monkeypatch.setenv("YOUTUBE_API_KEY", "test-key")
+    seen = []
+    bundle = collect("https://www.youtube.com/watch?v=vidAAAAAAAA&t=10s", client=FakeClient(direct_routes=youtube_routes(seen)))
+    assert bundle["site"] == "youtube" and bundle["credits_used"] == 0
+    assert "test-key" not in json.dumps(bundle)                                   # the key never reaches the bundle
+    t = bundle["thread"]
+    assert (t["platform"], t["post_id"], t["title"], t["commenters"]) == ("YouTube", "vidAAAAAAAA", "A synthetic video", 3)
+    assert bundle["coverage"]["comments_found"] == 4 and bundle["coverage"]["comments_expected"] == 6
+    comments, profiles, _ = convert(bundle)
+    by_id = {c["comment_id"]: c for c in comments}
+    assert by_id["t1"]["parent_id"] == "vidAAAAAAAA" and by_id["t1.r2"]["parent_id"] == "t1"   # the extra reply was fetched
+    assert by_id["o1"]["thread_id"] == "vidBBBBBBBB" and by_id["t1"]["username"] == "UCann"
+    assert {p["username"] for p in profiles if p["created_at"]} == {"UCann", "UCbob", "UCcy"}
+
+
+def test_youtube_link_forms_and_a_missing_key(monkeypatch):
+    from swarm.collect import youtube
+    for link in ("https://youtu.be/dQw4w9WgXcQ", "https://m.youtube.com/watch?v=dQw4w9WgXcQ", "https://www.youtube.com/shorts/dQw4w9WgXcQ",
+                 "https://www.youtube.com/live/dQw4w9WgXcQ?si=x"):
+        assert youtube.matches(link), link
+    assert not youtube.matches("https://www.youtube.com/@somechannel") and not youtube.matches("https://www.youtube.com/watch?v=short")
+    monkeypatch.delenv("YOUTUBE_API_KEY", raising=False)
+    with pytest.raises(CollectError, match="YOUTUBE_API_KEY"):
+        collect("https://youtu.be/dQw4w9WgXcQ", client=FakeClient())

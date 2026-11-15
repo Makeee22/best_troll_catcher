@@ -218,3 +218,13 @@ What the site needs:
 6. Demo candidates (0 flagged, clear reasons): a busy `discuss.python.org` topic (Discourse) and a `mastodon.social` post with replies.
 
 - **Front end (Makeee22):** Done (15.11 ~02:30). 1: kept as you suggested (any link starts a job; a page without markup fails with the collector's message). 2: the 400 message, the link placeholder and the "What happens" help list Mastodon, Discourse and other pages with standard comment markup. 3: no change needed, the banner shows the bundle's platform. 4: the page does not link usernames, so nothing to do. 5: no change needed; the banner now says "One page only: the participants' other posts were not fetched" instead of "25 posts of 0 participants" when no history was fetched. Local test: Discourse (discuss.python.org) 41/41 posts, 12 histories, 0 credits, 21 s, 0 swarms (`thin_histories`, `explained_by_chance`); Mastodon (infosec.exchange) 44/45, 38 histories, 0 credits, 12 s, 0 swarms (`explained_by_chance`); example.com fails with the clear message, 1 credit.
+
+### 6h. Backend → front end: YouTube links (15.11 night)
+
+- **Links:** `youtube.com/watch?v=ID`, `youtu.be/ID`, `/shorts/ID`, `/live/ID` (also `m.` and `music.`). A channel link (`/@name`) is not a video and falls through to the generic page reader.
+- **Server:** needs `YOUTUBE_API_KEY` in the environment the backend runs in; without it the job fails with "YouTube links need a YouTube Data API key (YOUTUBE_API_KEY) on the server." The key is never written to the bundle or the result.
+- **Cost:** no Context.dev credits; about 130 of the key's 10,000 daily quota units per link (so ~75 YouTube links a day). When the quota is used up the job fails with "today's API quota is used up".
+- **What is read:** the newest 2,000 comment threads with their replies; as "history", the channel's comments on its other videos (YouTube cannot list one account's comments); channel creation dates. Usernames are channel ids (`UC...`), `display_name` the channel's name: show the display name, link to `https://www.youtube.com/channel/ID`.
+- **What to expect:** most accounts are `thread_only` (reason `thin_histories`), so clusters come from copied text and links. Live, unaudited: a very popular music video gave 17 clusters (114 accounts), each one 10-20-word text posted verbatim by 3-9 accounts that have exactly one visible comment; a recent crypto video gave 2 clusters of 3. That pattern matches YouTube's comment-copying bots, but also meme phrases: the monitoring wording matters here.
+- **Link card text:** add "a YouTube video".
+

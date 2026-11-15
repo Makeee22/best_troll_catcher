@@ -464,11 +464,47 @@ def _discourse_actions(actions, host):
     return rows, [], []
 
 
+# --- YouTube Data API v3 ---
+
+def _yt_comment(c, source, video):
+    sn = _d(_d(c).get("snippet"))
+    author = _s(_d(sn.get("authorChannelId")).get("value"))
+    if not author or not _d(c).get("id"):
+        return None
+    vid = _s(sn.get("videoId")) or video
+    return _row(_s(c["id"]), author, _s(sn.get("textOriginal")) or _s(sn.get("textDisplay")), source,
+                _s(sn.get("authorDisplayName")), _s(sn.get("publishedAt")), _s(sn.get("parentId")) or vid, vid)
+
+
+def _yt_threads(threads, source, video=""):
+    """Rows of commentThread items: the top-level comment answers the video, a reply its thread's comment."""
+    rows = []
+    for t in _list(threads):
+        sn = _d(_d(t).get("snippet"))
+        vid = _s(sn.get("videoId")) or video
+        for c in [sn.get("topLevelComment")] + _list(_d(_d(t).get("replies")).get("comments")):
+            row = _yt_comment(c, source, vid)
+            if row:
+                rows.append(row)
+    return rows, [], []
+
+
+def _yt_channels(items):
+    return [], [_profile(_s(i.get("id")), _s(_d(i.get("snippet")).get("title")), _s(_d(i.get("snippet")).get("publishedAt")),
+                         "", _s(_d(i.get("snippet")).get("description"))) for i in map(_d, _list(items)) if i.get("id")], []
+
+
 def from_json(data, page_url):
     """Rows of a public API response: Bluesky thread, author feed and profiles, Hacker News item and search hits,
-    Mastodon thread and statuses, Discourse topic and user actions."""
+    Mastodon thread and statuses, Discourse topic and user actions, YouTube comment threads and channels."""
     data = _d(data)
     host = (urlparse(page_url).hostname or "") if isinstance(page_url, str) else ""
+    if isinstance(data.get("threads"), list) and "youtube_video" in data:
+        return _yt_threads(data["threads"], "thread", _s(_d(data["youtube_video"]).get("id")))
+    if isinstance(data.get("youtube_threads"), list):
+        return _yt_threads(data["youtube_threads"], "history")
+    if isinstance(data.get("youtube_channels"), list):
+        return _yt_channels(data["youtube_channels"])
     if "descendants" in data and "status" in data:
         return _masto_thread(data, host)
     if isinstance(data.get("statuses"), list):
