@@ -197,6 +197,8 @@ All additive; nothing breaks until these are done, but the R7 fix and R5 only re
 4. **`signals.group_test`** is gone (the group test was removed); no label needed. `parameters` has `rate_cap`, no `group_loose`.
 5. **Redeploy:** the live `/api/swarms` has no `diagnostics` yet (checked 15.11 night).
 
+- **Front end (Makeee22):** All five done and live in `6ec5429` (15.11 ~02:00). Listing passes `diagnostics` and `collection`; an empty result shows "Why nothing was found" with `reasons[].text`, and the whole-result AI summary gets them as D lines (aggregates only). Link runs pass `max_participants=None`. Members table: "(seen in this thread only)" next to `thread_only`. No `group_test` references existed. Live check, HN 46181371: 482/482 histories, 0 credits, 35 s, **0 flagged**, reason `explained_by_chance`.
+
 ### 6g. Backend → front end: three new link types (15.11 night, `e5f510e`)
 
 The collector now reads three more kinds of link (details: `docs/collect-interface.md`, section 1). Nothing in the result format changed; `docs/api.md` is as in 6f.
@@ -215,3 +217,4 @@ What the site needs:
 5. **Progress:** a generic page reports no progress (one request); the stage text "Reading the thread" stays until analysis.
 6. Demo candidates (0 flagged, clear reasons): a busy `discuss.python.org` topic (Discourse) and a `mastodon.social` post with replies.
 
+- **Front end (Makeee22):** Done (15.11 ~02:30). 1: kept as you suggested (any link starts a job; a page without markup fails with the collector's message). 2: the 400 message, the link placeholder and the "What happens" help list Mastodon, Discourse and other pages with standard comment markup. 3: no change needed, the banner shows the bundle's platform. 4: the page does not link usernames, so nothing to do. 5: no change needed; the banner now says "One page only: the participants' other posts were not fetched" instead of "25 posts of 0 participants" when no history was fetched. Local test: Discourse (discuss.python.org) 41/41 posts, 12 histories, 0 credits, 21 s, 0 swarms (`thin_histories`, `explained_by_chance`); Mastodon (infosec.exchange) 44/45, 38 histories, 0 credits, 12 s, 0 swarms (`explained_by_chance`); example.com fails with the clear message, 1 credit.

@@ -733,7 +733,9 @@ function bannerLines(job) {
       h("p", { class: "muted" },
         "Read " + fmtInt(t.comments_found) + (t.comments_expected != null ? " of " + fmtInt(t.comments_expected) : "") +
         " comments" + (t.commenters != null ? " from " + fmtInt(t.commenters) + " participants" : "") +
-        (t.history_per_commenter ? ". Fetched the newest " + t.history_per_commenter + " posts of " + fmtInt(job.histories_ok) + " participants" + failed : "") +
+        (t.history_per_commenter && (job.histories_ok || job.histories_failed)
+          ? ". Fetched the newest " + t.history_per_commenter + " posts of " + fmtInt(job.histories_ok) + " participants" + failed
+          : ". One page only: the participants' other posts were not fetched, so only copied text and shared links can link them") +
         cost),
     ];
   }
@@ -832,7 +834,7 @@ function startReddit(file) {
 
 function startUrl(url) {
   jobCard = "url";
-  if (!url) return jobError("Paste the link of a Bluesky post first.");
+  if (!url) return jobError("Paste a link to a post or thread first.");
   return startJob("url", () => api("/api/jobs/url", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ url }) }),
     "This server cannot analyse links yet.");
 }

@@ -322,9 +322,13 @@ def register(app, analyze, analysis_lock):
             raise HTTPException(400, "Give the link of one Bluesky post: https://bsky.app/profile/NAME/post/ID.")
         if not re.match(r"^https?://", url, re.I):
             url = "https://" + url
+        # The last collector ('generic', schema.org comment markup) takes any link; a page without markup fails in the
+        # job with the collector's own message (handoff 6g.1: kept on purpose).
         if not any(mod.matches(url) for _, mod in swarm_collect.SITES):
             raise HTTPException(400, "This site is not supported yet. Links that work: a Bluesky post, a Reddit thread, "
-                                     "a Hacker News story, or a review page (Google Maps, App Store, Google Play, Tripadvisor, Yelp, G2, TikTok).")
+                                     "a Hacker News story, a Mastodon post (any server), a Discourse forum topic (any forum), "
+                                     "a review page (Google Maps, App Store, Google Play, Tripadvisor, Yelp, G2, TikTok), "
+                                     "or another forum or news page with standard comment markup (one page, no commenter histories).")
         platform = "Bluesky" if bluesky.is_bluesky(url) else "Reddit" if REDDIT_LINK.match(url) else None
         thread = {"platform": platform, "url": url, "title": None, "comments_found": None, "comments_expected": None,
                   "commenters": None, "history_per_commenter": BLUESKY_HISTORY if platform == "Bluesky" else HISTORY}
