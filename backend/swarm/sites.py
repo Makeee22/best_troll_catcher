@@ -5,6 +5,7 @@ The Reddit page reader is a port of frontend/api/reddit_html.py (Reddit's shredd
 """
 import re
 from html.parser import HTMLParser
+from urllib.parse import urlparse
 
 MAX_COMMENTS = 5000
 VOID_TAGS = {"br", "hr", "img", "wbr"}  # no end tag, so they must not count as open
@@ -377,9 +378,105 @@ def _hn_item(item):
     return rows, [], []
 
 
+# --- Mastodon (fediverse) and Discourse public JSON ---
+
+# on the post's own server, a mention, hashtag, user or topic page is navigation, not shared content
+_OWN_PATH = re.compile(r"^/(?:@|tags/|tag/|users/|u/|t/|c/)", re.I)
+
+
+def _plain(html_text, host=""):
+    """(text, links) of a post's HTML: absolute links only, without the own server's mention, hashtag and user links."""
+    text, links = _html_text(html_text)
+    def own(link):
+        u = urlparse(link)
+        return (u.hostname or "").lower() == host.lower() and bool(_OWN_PATH.match(u.path or ""))
+    return text, " ".join(l for l in links.split() if l.startswith("http") and not own(l))
+
+
+def _masto_name(account, host):
+    acct = _s(account.get("acct"))
+    return acct if "@" in acct or not acct else f"{acct}@{host}"   # local accounts carry no server in acct
+
+
+def _masto_rows(statuses, source, host, thread_id=""):
+    rows, profiles = [], []
+    for st in statuses:
+        st = _d(st)
+        account = _d(st.get("account"))
+        name = _masto_name(account, host)
+        if not name or not st.get("id"):
+            continue
+        boosted = _d(st.get("reblog"))
+        if boosted:
+            rows.append(_row(f"reblog:{_s(st.get('id'))}", name, "", source, _s(account.get("display_name")),
+                             _s(st.get("created_at")), thread_id=_s(st.get("id")),
+                             repost_of=_s(boosted.get("uri")) or _s(boosted.get("url"))))
+        else:
+            text, links = _plain(st.get("content"), host)
+            card = _s(_d(st.get("card")).get("url"))
+            links = " ".join(dict.fromkeys(filter(None, links.split() + [card])))
+            rows.append(_row(_s(st.get("id")), name, text, source, _s(account.get("display_name")), _s(st.get("created_at")),
+                             _s(st.get("in_reply_to_id")), thread_id or _s(st.get("in_reply_to_id")) or _s(st.get("id")), links))
+        bio, _ = _html_text(account.get("note"))
+        profiles.append(_profile(name, _s(account.get("display_name")), _s(account.get("created_at")),
+                                 _s(account.get("statuses_count")), bio))
+    return rows, profiles, []
+
+
+def _masto_thread(data, host):
+    posts = _list(data.get("ancestors")) + [data.get("status")] + _list(data.get("descendants"))
+    root = _s(_d(posts[0]).get("id")) if posts else ""
+    return _masto_rows(posts, "thread", host, root)
+
+
+def _discourse_parent(topic, post_number, reply_to):
+    """Discourse names a reply's parent by post number; "topic#n" is the same in a topic and in a user's activity."""
+    n = int(post_number or 0)
+    return f"{topic}#{int(reply_to)}" if reply_to else (f"{topic}#1" if n > 1 else "")
+
+
+def _discourse_topic(data, host):
+    topic = _s(data.get("id"))
+    rows = []
+    for p in _list(_d(data.get("post_stream")).get("posts")):
+        p = _d(p)
+        if not p.get("username") or not p.get("post_number"):
+            continue
+        text, links = _plain(p.get("cooked"), host)
+        rows.append(_row(f"{topic}#{int(p['post_number'])}", _s(p.get("username")), text, "thread", _s(p.get("name")),
+                         _s(p.get("created_at")), _discourse_parent(topic, p.get("post_number"), p.get("reply_to_post_number")),
+                         topic, links))
+    return rows, [], []
+
+
+def _discourse_actions(actions, host):
+    """A user's posts from user_actions.json. shortcut: `excerpt` is cut at about 300 characters, so a long history
+    post matches only a copy cut the same way; fetch /posts/ID.json per post when that matters."""
+    rows = []
+    for a in _list(actions):
+        a = _d(a)
+        topic, number = _s(a.get("topic_id")), a.get("post_number")
+        if not a.get("username") or not topic or not number:
+            continue
+        text, links = _plain(a.get("excerpt"), host)
+        rows.append(_row(f"{topic}#{int(number)}", _s(a.get("username")), text, "history", "", _s(a.get("created_at")),
+                         _discourse_parent(topic, number, a.get("reply_to_post_number")), topic, links))
+    return rows, [], []
+
+
 def from_json(data, page_url):
-    """Rows of a public API response: Bluesky thread, author feed and profiles, Hacker News item and search hits."""
+    """Rows of a public API response: Bluesky thread, author feed and profiles, Hacker News item and search hits,
+    Mastodon thread and statuses, Discourse topic and user actions."""
     data = _d(data)
+    host = (urlparse(page_url).hostname or "") if isinstance(page_url, str) else ""
+    if "descendants" in data and "status" in data:
+        return _masto_thread(data, host)
+    if isinstance(data.get("statuses"), list):
+        return _masto_rows(data["statuses"], "history", host)
+    if isinstance(data.get("post_stream"), dict):
+        return _discourse_topic(data, host)
+    if isinstance(data.get("user_actions"), list):
+        return _discourse_actions(data["user_actions"], host)
     if "thread" in data:
         return _bsky_thread(_d(data["thread"]))
     if "feed" in data:

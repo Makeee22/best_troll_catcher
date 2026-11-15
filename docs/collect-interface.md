@@ -44,8 +44,11 @@ python -m swarm.collect URL OUT_DIR [--history N] [--max-participants N] [--no-s
 | Hacker News `news.ycombinator.com/item?id=N` | Algolia `items/N` as a `json` page | Algolia `search_by_date?tags=comment,author_NAME&hitsPerPage=history`, `json` pages | no |
 | Reddit thread `reddit.com/r/…/comments/ID` | rendered page (`html`, retried once with a longer wait if it holds no comment) | `reddit-user` parser, `parsed` unchanged | yes |
 | Google Maps place, App Store, Google Play, Tripadvisor, Yelp, G2, TikTok video | the matching Context.dev parser, `parsed` unchanged (Google Maps with `limit` 200; the others return one page) | none | yes |
+| Mastodon or compatible server `SERVER/@NAME/ID` (any server) | `statuses/ID` + `statuses/ID/context`, one `json` page `{status, ancestors, descendants}`. A server shows only the replies it has received (mastodon.social, 15.11: 52 of 126) | per participant `accounts/ID/statuses` (40 per page, paged back to the thread's date ±7 days, at most 5 pages), `json` page `{statuses}`. A remote account's posts are those this server has seen | no |
+| Discourse forum `FORUM/t/SLUG/ID` (any forum) | `t/ID.json`, the posts beyond the first 20 from `t/ID/posts.json` (20 ids a call, at most 3,000 posts), one `json` page | per poster `user_actions.json?filter=4,5` (paged back to the topic's date), `json` page `{user_actions}`; `excerpt` is cut at ~300 characters | no |
+| **Any other page** with schema.org `Comment` / `Answer` / `Review` / `DiscussionForumPosting` markup (XenForo, Invision, Discourse, many news and Q&A sites) | the page rendered by Context.dev (`html`), read by `schemaorg.from_html`; the fuller of JSON-LD and microdata wins (XenForo's JSON-LD holds only the opening post) | none; one page only | yes |
 
-Anything else raises `CollectError("This site is not supported yet: …")`. Hacker News history uses `search_by_date` (newest first); plain `search` ranks by relevance and missed the newest comment for 2 of 6 authors in a check on 14.11.
+A page with no such markup raises `CollectError("This site is not supported yet: …")`. Usernames: Mastodon `name@server` (local accounts get the server added), Discourse the forum's own; Discourse parent ids are `TOPIC#N` so a topic and a poster's activity agree. Hacker News history uses `search_by_date` (newest first); plain `search` ranks by relevance and missed the newest comment for 2 of 6 authors in a check on 14.11.
 
 ## 2. Convert (backend, `backend/`)
 

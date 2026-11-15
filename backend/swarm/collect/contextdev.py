@@ -98,8 +98,8 @@ class ContextDev:
                 return {"_http_error": 0, "_error_code": "NETWORK", "_message": "no answer from Context.dev"}
         return {"_http_error": 429, "_error_code": "RATE_LIMITED", "_message": "still rate limited after retries"}
 
-    def direct_json(self, url):
-        return direct_json(url)
+    def direct_json(self, url, allow_list=False):
+        return direct_json(url, allow_list=allow_list)
 
     def fetch_json(self, url):
         """A public JSON endpoint fetched through Context.dev: the original response body (formats.bytes).
@@ -162,8 +162,9 @@ class ContextDev:
         return parsed
 
 
-def direct_json(url, timeout=30):
-    """Plain GET of a public, login-free JSON endpoint. Raises ContextDevError unless a JSON object comes back."""
+def direct_json(url, timeout=30, allow_list=False):
+    """Plain GET of a public, login-free JSON endpoint. Raises ContextDevError unless a JSON object (or, with
+    allow_list, an array: Mastodon's statuses) comes back."""
     req = urllib.request.Request(url, headers={"User-Agent": "spot-the-swarm (Junction 2026 hackathon)", "Accept": "application/json"})
     short = url.split("?")[0]
     for attempt in range(3):
@@ -182,6 +183,6 @@ def direct_json(url, timeout=30):
             raise ContextDevError(f"No answer from {short}") from None
         except ValueError:
             raise ContextDevError(f"{short} did not answer with JSON") from None
-        if not isinstance(data, dict):
+        if not isinstance(data, dict) and not (allow_list and isinstance(data, list)):
             raise ContextDevError(f"{short} did not answer with a JSON object")
         return data

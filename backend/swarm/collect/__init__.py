@@ -10,13 +10,16 @@ import re
 import tempfile
 from datetime import datetime, timezone
 
-from . import bluesky, hackernews, reddit, reviews
+from . import bluesky, discourse, generic, hackernews, mastodon, reddit, reviews
 from .contextdev import CollectError, ContextDev, ContextDevError
 
 __all__ = ["collect", "run", "analyse", "CollectError", "ContextDev", "ContextDevError"]
 
 MAX_HISTORY = 100     # newest posts per commenter; more costs credits for little evidence
-SITES = [("bluesky", bluesky), ("hackernews", hackernews), ("reddit", reddit), ("reviews", reviews)]
+# order matters: the specific sites first, then the federated formats any server can run, then any page with
+# schema.org comment markup (generic matches every link)
+SITES = [("bluesky", bluesky), ("hackernews", hackernews), ("reddit", reddit), ("reviews", reviews),
+         ("mastodon", mastodon), ("discourse", discourse), ("generic", generic)]
 
 
 def _normalise(url):

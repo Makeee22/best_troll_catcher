@@ -1,5 +1,6 @@
 """swarm.collect: offline only. Every response below is hand-written and synthetic (no real accounts)."""
 import json
+import re
 import subprocess
 import sys
 import urllib.request
@@ -41,7 +42,7 @@ class FakeClient:
         self.credits_used += 1
         return self.json_routes(url), "context.dev"
 
-    def direct_json(self, url):
+    def direct_json(self, url, allow_list=False):
         self.calls.append(("direct", url))
         data = self.direct_routes(url)
         if data is None:
@@ -595,3 +596,126 @@ def test_free_apis_default_to_500_participants_reddit_to_150():
     from swarm.collect import bluesky, hackernews, reddit
     assert bluesky.MAX_PARTICIPANTS == hackernews.MAX_PARTICIPANTS == 500
     assert getattr(reddit, "MAX_PARTICIPANTS", 150) == 150
+
+
+# --- Mastodon, Discourse, any page with schema.org markup ------------------------------------
+
+def mstatus(i, acct, text, reply_to=None, created="2026-11-14T10:00:00.000Z", reblog=None, card=None, mentions=()):
+    return {"id": str(i), "uri": f"https://social.example/users/{acct}/statuses/{i}", "created_at": created,
+            "in_reply_to_id": reply_to, "replies_count": 0, "reblog": reblog, "card": card,
+            "content": text, "mentions": [{"url": m} for m in mentions], "tags": [],
+            "account": {"id": f"a-{acct}", "acct": acct, "display_name": acct.title(), "created_at": "2026-11-01T00:00:00.000Z",
+                        "note": "<p>hello</p>", "statuses_count": 9}}
+
+
+M_ROOT = dict(mstatus(1, "op", "<p>the opening post</p>"), replies_count=3)
+M_THREAD = [mstatus(2, "ann", '<p><a href="https://social.example/@op" class="mention">@op</a> read <a href="https://news.example/a">this</a></p>', "1",
+                    mentions=["https://social.example/@op"]),
+            mstatus(3, "bob@other.example", "<p>a remote reply</p>", "1"),
+            mstatus(4, "ann", "<p>ann again</p>", "3")]
+
+
+def mastodon_routes(fail=()):
+    def route(url):
+        path = urlparse(url).path
+        if path == "/api/v1/statuses/1":
+            return M_ROOT
+        if path == "/api/v1/statuses/1/context":
+            return {"ancestors": [], "descendants": M_THREAD}
+        m = re.match(r"/api/v1/accounts/a-(.+)/statuses", path)
+        if m:
+            if m.group(1) in fail:
+                return None
+            boost = mstatus(90, m.group(1), "", reblog={"uri": "https://far.example/statuses/7"})
+            return [mstatus(80, m.group(1), "<p>older words</p>", card={"url": "https://card.example/x"}), boost]
+        raise AssertionError(url)
+    return route
+
+
+M_LINK = "https://social.example/@op/1"
+
+
+def test_mastodon_thread_and_histories_from_the_servers_public_api():
+    client = FakeClient(direct_routes=mastodon_routes(fail={"op"}))
+    bundle = collect(M_LINK, history=5, client=client)
+    assert bundle["site"] == "mastodon" and bundle["credits_used"] == 0 and all(c[0] == "direct" for c in client.calls)
+    t = bundle["thread"]
+    assert (t["commenters"], t["commenters_fetched"], t["histories_ok"], t["histories_failed"]) == (3, 3, 2, 1)
+    assert [c[1] for c in client.calls if "/accounts/" in c[1]][0].startswith("https://social.example/api/v1/accounts/a-ann/")  # most posts first
+    assert bundle["coverage"]["comments_found"] == 3 and bundle["coverage"]["comments_expected"] == 3
+    comments, profiles, _ = convert(bundle)
+    by_id = {c["comment_id"]: c for c in comments}
+    assert by_id["2"]["username"] == "ann@social.example" and by_id["3"]["username"] == "bob@other.example"
+    assert by_id["2"]["links"] == "https://news.example/a"                     # the mention is not a shared link
+    assert by_id["2"]["thread_id"] == by_id["4"]["thread_id"] == "1" and by_id["4"]["parent_id"] == "3"
+    assert any(c["repost_of"] == "https://far.example/statuses/7" for c in comments)
+    assert any(c["links"] == "https://card.example/x" for c in comments)
+    assert {p["created_at"] for p in profiles} == {"2026-11-01T00:00:00Z"}
+
+
+def test_mastodon_link_forms_and_a_server_that_is_not_mastodon():
+    from swarm.collect import mastodon
+    assert mastodon.matches("https://mastodon.social/@Gargron/113490000000000000")
+    assert mastodon.matches("https://social.example/@bob@other.example/42")
+    assert not mastodon.matches("https://www.tiktok.com/@someone/video/123")   # the review parsers come first anyway
+    with pytest.raises(CollectError, match="not Mastodon-compatible"):
+        collect("https://plain.example/@x/5", client=FakeClient(direct_routes=lambda url: None))
+
+
+D_POSTS = [{"id": 100 + n, "username": u, "name": u.title(), "created_at": f"2026-11-14T10:0{n}:00.000Z", "post_number": n,
+            "reply_to_post_number": r, "cooked": f'<p>post {n} by {u} <a href="/u/op">@op</a> <a href="https://ext.example/{n}">x</a></p>'}
+           for n, u, r in [(1, "op", None), (2, "ann", None), (3, "bob", 2), (4, "ann", None)]]
+
+
+def discourse_routes():
+    def route(url):
+        u = urlparse(url)
+        q = parse_qs(u.query)
+        if u.path == "/t/7.json":
+            return {"id": 7, "title": "A synthetic topic", "posts_count": 4,
+                    "post_stream": {"posts": D_POSTS[:2], "stream": [p["id"] for p in D_POSTS]}}
+        if u.path == "/t/7/posts.json":
+            ids = {int(x) for x in q["post_ids[]"]}
+            return {"post_stream": {"posts": [p for p in D_POSTS if p["id"] in ids]}}
+        if u.path == "/user_actions.json":
+            assert q["filter"] == ["4,5"]
+            name = q["username"][0]
+            return {"user_actions": [{"username": name, "topic_id": 9, "post_number": 3, "reply_to_post_number": 1,
+                                      "created_at": "2026-11-13T10:00:00.000Z", "excerpt": f"older words by {name}"}]}
+        raise AssertionError(url)
+    return route
+
+
+def test_discourse_topic_reads_every_post_and_the_posters_activity():
+    client = FakeClient(direct_routes=discourse_routes())
+    bundle = collect("https://forum.example/t/a-synthetic-topic/7/3", history=5, client=client)
+    assert bundle["site"] == "discourse" and bundle["credits_used"] == 0
+    assert any("/t/7/posts.json?post_ids[]=103&post_ids[]=104" in c[1] for c in client.calls)
+    assert bundle["coverage"]["comments_found"] == 3 and bundle["coverage"]["comments_expected"] == 3
+    t = bundle["thread"]
+    assert (t["title"], t["commenters"], t["histories_ok"]) == ("A synthetic topic", 3, 3)
+    comments, _, _ = convert(bundle)
+    by_id = {c["comment_id"]: c for c in comments}
+    assert by_id["7#2"]["parent_id"] == "7#1" and by_id["7#3"]["parent_id"] == "7#2" and by_id["7#1"]["parent_id"] == ""
+    assert by_id["7#2"]["links"] == "https://ext.example/2"                     # the /u/ mention is not a shared link
+    assert by_id["9#3"]["thread_id"] == "9" and by_id["9#3"]["parent_id"] == "9#1"
+
+
+def test_a_page_that_is_not_discourse_is_refused():
+    with pytest.raises(CollectError, match="not a public Discourse forum"):
+        collect("https://shop.example/t/shirts/12", client=FakeClient(direct_routes=lambda url: None))
+
+
+GENERIC_PAGE = "<html><body>" + "".join(
+    f'<article itemscope itemtype="https://schema.org/Comment"><span itemprop="author">u{i}</span>'
+    f'<div itemprop="text">comment number {i} on the forum</div></article>' for i in range(3)) + "</body></html>"
+
+
+def test_any_other_page_is_read_from_its_schema_org_markup():
+    bundle = collect("https://forum.example/threads/topic.1/", client=FakeClient(html=GENERIC_PAGE))
+    assert bundle["site"] == "generic" and bundle["coverage"]["comments_found"] == 3
+    assert bundle["thread"]["commenters"] == 3 and bundle["thread"]["commenters_fetched"] == 0
+    comments, _, _ = convert(bundle)
+    assert sorted(c["username"] for c in comments) == ["u0", "u1", "u2"]
+    with pytest.raises(CollectError, match="not supported yet: plain.example .*no standard comment markup"):
+        collect("https://plain.example/page", client=FakeClient(html="<html><p>no comments here</p></html>"))
