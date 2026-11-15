@@ -17,7 +17,7 @@ Given a URL, it fetches as much of the page's discussion as can be had for free 
 ```python
 from swarm.collect import collect, run, CollectError
 
-bundle = collect(url, history=25, max_participants=150, on_progress=None, client=None)   # the raw bundle
+bundle = collect(url, history=25, max_participants=None, on_progress=None, client=None)   # the raw bundle; None = the site's own cap (500 on free APIs, 150 on Reddit)
 result, bundle = run(url, similar_text=True, history=25)    # collect -> swarm.convert -> swarm.core.analyze
 ```
 
@@ -40,8 +40,8 @@ python -m swarm.collect URL OUT_DIR [--history N] [--max-participants N] [--no-s
 
 | Site (link) | Thread | Histories | Key |
 |---|---|---|---|
-| Bluesky post `bsky.app/profile/NAME/post/ID` | `getPostThread` (depth 1000) as a `json` page | per participant `getAuthorFeed` (`posts_with_replies`, limit = history) and `getProfiles` (25 per call), `json` pages | no |
-| Hacker News `news.ycombinator.com/item?id=N` | Algolia `items/N` as a `json` page | Algolia `search_by_date?tags=comment,author_NAME&hitsPerPage=history`, `json` pages | no |
+| Bluesky post `bsky.app/profile/NAME/post/ID` | `getPostThread` (depth 1000) as a `json` page | per participant, most active first, `getAuthorFeed` (`posts_with_replies`) fetched **directly**, paged back to the thread's date (at most 5 x 100), the `history` posts nearest it kept as `{feed}`; `getProfiles` (25 per call) through Context.dev | no |
+| Hacker News `news.ycombinator.com/item?id=N` | Algolia `items/N` as a `json` page | per commenter, most active first, Algolia `search_by_date?tags=comment,author_NAME&hitsPerPage=history&numericFilters=created_at_i` within the story's date ±7 days; the newest when none fall in it; `json` pages | no |
 | Reddit thread `reddit.com/r/…/comments/ID` | rendered page (`html`, retried once with a longer wait if it holds no comment) | `reddit-user` parser, `parsed` unchanged | yes |
 | Google Maps place, App Store, Google Play, Tripadvisor, Yelp, G2, TikTok video | the matching Context.dev parser, `parsed` unchanged (Google Maps with `limit` 200; the others return one page) | none | yes |
 | YouTube video `youtube.com/watch?v=ID`, `youtu.be/ID`, `/shorts/ID`, `/live/ID` | YouTube Data API v3 (`YOUTUBE_API_KEY`): `videos`, then `commentThreads` newest first (at most 2,000 threads), replies beyond the 5 inline ones from `comments?parentId` (at most 100 threads); one `json` page `{youtube_video, threads}` | the API cannot list one account's comments: the channel's comment threads on all its videos (`allThreadsRelatedToChannelId`, at most 1,000) stand in, `json` page `{youtube_threads}`; channel creation dates from `channels` (50 per call), `{youtube_channels}`. About 130 of the 10,000 daily quota units per link; the key is never stored in the bundle | YouTube key |
@@ -199,7 +199,7 @@ The converter can rely on: UTF-8 strings; times in ISO 8601 UTC; usernames as th
 | `coverage` | counts from the thread | `thread.comments_found`, `comments_expected` (sum of `replyCount`), `comments_hidden` (blocked or removed nodes), `commenters`, `commenters_fetched` (cap: 150 on the site), and notes at the top of the result's `warnings` |
 | `credits_used` | Context.dev's `key_metadata` | the job's `credits_used`; `thread.via` counts requests through Context.dev and direct ones |
 
-Not collected: likes, quote posts as their own signal, more than the newest 30 items per participant, followers lists.
+Not collected: likes, quote posts as their own signal, more than `history` (default 25) posts per participant, followers lists.
 
 ### For the converter: do not trust Context.dev's model-based extraction for counts or structure
 
