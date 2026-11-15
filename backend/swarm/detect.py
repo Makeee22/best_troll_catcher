@@ -192,10 +192,11 @@ def detect(con, *, min_shared=MIN_SHARED, alpha=ALPHA, min_size=MIN_SIZE, pair_b
     # chance that two different posts of one kind are the same item (unbiased: a post never matches itself)
     # An item counts toward the chance rate as if at most `rate_cap` accounts shared it: a large botnet's own copies
     # otherwise set the rate (humans share 11-16 times less often than the uncapped rate predicts, Test A).
-    # Not for replies: many accounts answering one popular post is what people do (a thread's story and top comment,
-    # handoff 6e R7); capped, every pair of commenters who answered both would look coordinated.
+    # Copied text only. Many accounts answering one popular post (handoff 6e, R7), reposting one viral post or sharing
+    # one breaking-news link is what people do: capped, every pair that shared two such items linked, and a day of
+    # Brazilian election retweets became one cluster of 20,000 ordinary accounts (docs/test-brazil-elections.md).
     con.execute("create or replace table s as select kind, sum(c::double * (c - 1)) / nullif(sum(df)::double * (sum(df) - 1), 0) as s "
-                "from (select kind, df, case when kind = 'reply' then df else least(df, ?) end as c from df) group by kind",
+                "from (select kind, df, case when kind = 'text' then least(df, ?) else df end as c from df) group by kind",
                 [rate_cap])
     if similar_text and con.execute("select count(*) from df where kind = 'similar_text'").fetchall()[0][0]:
         _similar_rate(con)

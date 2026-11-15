@@ -204,6 +204,6 @@ State on `main` at the end of the night (15.11, `c0cc0bb`); history of each step
 - Blocked:
 
 ### Data + detection criteria
-- Done:
-- Doing:
-- Blocked:
+- 15.11 night: TheSnowman99 is away until after the deadline; the rest of the team took over this role's open work.
+- Done (by Arde1001): `data/README.md` (every dataset's source, terms and handling; unknown licences stated as unknown and treated as research use only) and `docs/criteria.md` (every detection criterion, its value and how it was chosen).
+- Open: confirm the source and terms of Fox8-23, the unlabelled tweet set (TwiBot-22?) and Brazil 2021 before anything beyond aggregate numbers is published.

@@ -282,3 +282,18 @@ def test_accounts_seen_only_in_one_thread_still_link_on_copied_text(tmp_path, ma
               "text": f"u{a} reviews it as {WORDS[i % 12]} and {WORDS[(a + i) % 12]} fine"} for a in range(60) for i in range(3)]
     con, _, _ = run(tmp_path, make_csv, rows)
     assert clusters(con) == [set(swarm)]
+
+
+def test_a_retweet_storm_is_not_a_swarm(tmp_path, make_csv):
+    # Test B (Brazil elections): thousands of people each repost a few of the same viral posts and little else.
+    # Capped, posts reposted by hundreds looked rare and every pair sharing two of them linked into one cluster.
+    import random
+    rng = random.Random(7)
+    rows = []
+    for a in range(1500):
+        for v in rng.sample(range(8), rng.randint(2, 4)):
+            rows.append({"username": f"p{a}", "repost_of": f"viral{v}"})
+        for i in range(rng.randint(0, 3)):
+            rows.append({"username": f"p{a}", "repost_of": f"own{a}-{i}"})
+    con, signals, _ = run(tmp_path, make_csv, rows)
+    assert clusters(con) == [] and signals["repost"]["links"] == 0
