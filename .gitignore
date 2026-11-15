@@ -34,3 +34,17 @@ build/
 
 # Partner notes kept out of the public repo
 PartnerAPIs.md
+
+# Team-internal working files (15.11.2026): kept on the team machines, not published
+CLAUDE.md
+PLAN.md
+docs/core-plan.md
+docs/findings-context-dev-and-subset.md
+docs/handoff-frontend-to-backend.md
+docs/superpowers/
+docs/test-a-conversation.md
+docs/test-brazil-elections.md
+docs/test-fox8-and-tweets.md
+docs/test-plan-broad-data.md
+docs/test-r-reported-bots.md
+docs/use-case-propaganda.md

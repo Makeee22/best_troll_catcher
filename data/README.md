@@ -4,7 +4,7 @@ Where every dataset we used comes from, its terms, and how we handle it. **No ra
 Raw files live only on the machine of the person who ran the test, in `data/raw/` or `backend/data/` (both ignored
 by git). Test reports in `docs/` hold aggregate numbers only: no usernames, no account ids, no texts.
 
-Written 15.11.2026 by the backend owner, taking over from the data owner. Where a licence is not stated by the source,
+Where a licence is not stated by the source,
 we say so and treat the data as **research use only**.
 
 ## Rules for every real dataset
@@ -19,17 +19,16 @@ we say so and treat the data as **research use only**.
 
 | Dataset | What | Source | Licence / terms | Used in |
 |---|---|---|---|---|
-| **Cresci 2017** | Twitter, 2014: 6.6M tweets, 9,076 bots (three social spambot families, traditional spambots, fake followers) and 1,083 genuine accounts, labelled | S. Cresci, R. Di Pietro, M. Petrocchi, A. Spognardi, M. Tesconi, "The paradigm-shift of social spambots: Evidence, theories, and tools for the arms race", WWW 2017 Companion. MIB project, IIT-CNR: http://mib.projects.iit.cnr.it/dataset.html | **Research use only**, as the dataset's terms state; holds real people's tweets | Main benchmark (`PLAN.md` Results), Test A (`docs/test-a-conversation.md`), planted-swarm backgrounds |
-| **Cresci subset** (`AllComments_Combined.csv`) | 3.57M tweets of 4,905 accounts (4,528 social bots, 377 humans), already in the standard format | A file shared within the team; every account matches a Cresci 2017 screen name, so it is a Cresci derivative | As Cresci 2017 | The false-positive trap (`docs/findings-context-dev-and-subset.md`) |
-| **Fox8-23** | Twitter botnet of accounts posting ChatGPT-written tweets (2023): 1,140 bots, 1,139 humans, 368,028 posts | K.-C. Yang, F. Menczer, "Anatomy of an AI-powered malicious social botnet", 2023 (arXiv 2307.16336) | **Not stated** on the paper's page; treated as research use only | Test F, F2, F3 (`docs/test-fox8-and-tweets.md`) |
+| **Cresci 2017** | Twitter, 2014: 6.6M tweets, 9,076 bots (three social spambot families, traditional spambots, fake followers) and 1,083 genuine accounts, labelled | S. Cresci, R. Di Pietro, M. Petrocchi, A. Spognardi, M. Tesconi, "The paradigm-shift of social spambots: Evidence, theories, and tools for the arms race", WWW 2017 Companion. MIB project, IIT-CNR: http://mib.projects.iit.cnr.it/dataset.html | **Research use only**, as the dataset's terms state; holds real people's tweets | Main benchmark, Test A, planted-swarm backgrounds (`docs/evaluation.md`) |
+| **Cresci subset** (`AllComments_Combined.csv`) | 3.57M tweets of 4,905 accounts (4,528 social bots, 377 humans), already in the standard format | A file shared within the team; every account matches a Cresci 2017 screen name, so it is a Cresci derivative | As Cresci 2017 | The false-positive trap (`docs/evaluation.md`) |
+| **Fox8-23** | Twitter botnet of accounts posting ChatGPT-written tweets (2023): 1,140 bots, 1,139 humans, 368,028 posts | K.-C. Yang, F. Menczer, "Anatomy of an AI-powered malicious social botnet", 2023 (arXiv 2307.16336) | **Not stated** on the paper's page; treated as research use only | Test F (`docs/evaluation.md`) |
 | **Unlabelled tweet set** (`id_tweet_part001`–`011`) | 1,000,000 accounts (ids 0–999,999), at most 21 tweets each, 18.8M tweets, text and links only | Shared within the team; the account count matches TwiBot-22's, **not confirmed** | **Unknown**; treated as research use only | Test F (scale, planted swarms) |
-| **Brazil elections 2021** | 57.8M tweets of 3.2M accounts, retweets, quotes and replies with timestamps and a per-tweet `botscore` from another model; no text, no usernames | Shared within the team; **source not recorded** | **Unknown**; treated as research use only | Test B (`docs/test-brazil-elections.md`) |
-| **IRA troll tweets** | Tweets of accounts tied to Russia's Internet Research Agency, 2012–2018; every account a troll (recall only) | FiveThirtyEight, https://github.com/fivethirtyeight/russian-troll-tweets, data from Clemson University researchers D. Linvill and P. Warren | **No licence stated** in the repository; treated as research use only | The IRA sample (`PLAN.md` Results, handoff 6a) |
-| **Test R** (community-reported Reddit bots) | 72 accounts reported as bots by Reddit users in May–November 2026 and 96 background accounts, 4,053 comments | Collected 14.11.2026 from public Reddit pages through Context.dev (`docs/test-r-reported-bots.md`) | Public pages, but real usernames: never committed or quoted | Test R |
-| **Live threads** | Single public threads collected tonight to check the collectors (Hacker News, Bluesky, Mastodon, Discourse, YouTube, XenForo, Invision) | The sites' public APIs or pages | Public, real people: kept on the machine, counts only in the docs | Handoff sections 6 and 6e–6h |
+| **IRA troll tweets** | Tweets of accounts tied to Russia's Internet Research Agency, 2012–2018; every account a troll (recall only) | FiveThirtyEight, https://github.com/fivethirtyeight/russian-troll-tweets, data from Clemson University researchers D. Linvill and P. Warren | **No licence stated** in the repository; treated as research use only | The IRA sample (`docs/evaluation.md`) |
+| **Test R** (community-reported Reddit bots) | 72 accounts reported as bots by Reddit users in May–November 2026 and 96 background accounts, 4,053 comments | Collected 14.11.2026 from public Reddit pages through Context.dev | Public pages, but real usernames: never committed or quoted | Test R (`docs/evaluation.md`) |
+| **Live threads** | Single public threads collected tonight to check the collectors (Hacker News, Bluesky, Mastodon, Discourse, YouTube, XenForo, Invision) | The sites' public APIs or pages | Public, real people: kept on the machine, counts only in the docs | Collector checks |
 | **Synthetic sample** | Simulated accounts with known swarms and innocent look-alikes (breaking news, a viral repost, a greeting, fans, feeds); `synthetic = 1` on every comment | Generated by `python -m swarm.synthetic` | Ours (MIT) | Tests, the website's sample files |
 
 ## Open questions
 
-- Fox8-23, the tweet set and Brazil 2021: confirm their exact source and terms before any publication beyond aggregate numbers.
+- Fox8-23 and the tweet set: confirm their exact source and terms before any publication beyond aggregate numbers.
 - The tweet set: if it is TwiBot-22, its `label.csv` would give labels for 1M accounts (access is on request from its authors).
